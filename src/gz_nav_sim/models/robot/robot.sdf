@@ -1,0 +1,300 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+
+  <model name="robot">
+
+    <!-- 본체 -->
+    <link name="base_link">
+      <inertial>
+        <mass>8.0</mass>
+        <inertia>
+          <ixx>0.2</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.2</iyy><iyz>0</iyz><izz>0.3</izz>
+        </inertia>
+      </inertial>
+
+      <collision name="col">
+        <geometry>
+          <cylinder>
+            <radius>0.18</radius>
+            <length>0.12</length>
+          </cylinder>
+        </geometry>
+      </collision>
+
+      <visual name="vis">
+        <geometry>
+          <cylinder>
+            <radius>0.18</radius>
+            <length>0.12</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.2 0.5 0.8 1</ambient>
+          <diffuse>0.2 0.5 0.8 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- 2D LiDAR -->
+      <sensor name="lidar" type="gpu_lidar">
+        <pose>0 0 0.1 0 0 0</pose>
+        <topic>/scan</topic>
+        <gz_frame_id>base_link</gz_frame_id>
+        <update_rate>20</update_rate>
+        <always_on>true</always_on>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>720</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.14159</min_angle>
+              <max_angle>3.14159</max_angle>
+            </horizontal>
+          </scan>
+          <range>
+            <min>0.12</min>
+            <max>15.0</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.005</stddev>
+          </noise>
+        </lidar>
+      </sensor>
+
+      <!-- 전방 RGB 카메라 -->
+      <sensor name="front_camera" type="camera">
+        <pose>0.16 0 0.08 0 0 0</pose>
+        <topic>/front_camera/image_raw</topic>
+        <gz_frame_id>front_camera_optical_frame</gz_frame_id>
+        <update_rate>20</update_rate>
+        <always_on>true</always_on>
+        <camera>
+          <camera_info_topic>/front_camera/camera_info</camera_info_topic>
+          <optical_frame_id>front_camera_optical_frame</optical_frame_id>
+          <horizontal_fov>1.287</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>RGB_INT8</format>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>20.0</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.005</stddev>
+          </noise>
+        </camera>
+      </sensor>
+    </link>
+
+    <!-- 왼쪽 바퀴 -->
+    <link name="left_wheel">
+      <pose>0 0.19 -0.04 -1.5708 0 0</pose>
+      <inertial>
+        <mass>0.5</mass>
+        <inertia>
+          <ixx>0.001</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.001</iyy><iyz>0</iyz><izz>0.001</izz>
+        </inertia>
+      </inertial>
+      <collision name="col">
+        <geometry>
+          <cylinder>
+            <radius>0.08</radius>
+            <length>0.04</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.0</mu>
+              <mu2>0.8</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+      <visual name="vis">
+        <geometry>
+          <cylinder>
+            <radius>0.08</radius>
+            <length>0.04</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.1 0.1 0.1 1</diffuse>
+        </material>
+      </visual>
+    </link>
+
+    <joint name="left_wheel_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>left_wheel</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>-1e16</lower>
+          <upper>1e16</upper>
+        </limit>
+      </axis>
+    </joint>
+
+    <!-- 오른쪽 바퀴 -->
+    <link name="right_wheel">
+      <pose>0 -0.19 -0.04 -1.5708 0 0</pose>
+      <inertial>
+        <mass>0.5</mass>
+        <inertia>
+          <ixx>0.001</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.001</iyy><iyz>0</iyz><izz>0.001</izz>
+        </inertia>
+      </inertial>
+      <collision name="col">
+        <geometry>
+          <cylinder>
+            <radius>0.08</radius>
+            <length>0.04</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.0</mu>
+              <mu2>0.8</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+      <visual name="vis">
+        <geometry>
+          <cylinder>
+            <radius>0.08</radius>
+            <length>0.04</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.1 0.1 0.1 1</diffuse>
+        </material>
+      </visual>
+    </link>
+
+    <joint name="right_wheel_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>right_wheel</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>-1e16</lower>
+          <upper>1e16</upper>
+        </limit>
+      </axis>
+    </joint>
+
+    <!-- 앞 보조 캐스터 -->
+    <link name="front_caster">
+      <pose>0.16 0 -0.09 0 0 0</pose>
+      <inertial>
+        <mass>0.08</mass>
+        <inertia>
+          <ixx>0.00005</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.00005</iyy><iyz>0</iyz><izz>0.00005</izz>
+        </inertia>
+      </inertial>
+      <collision name="col">
+        <geometry>
+          <sphere>
+            <radius>0.03</radius>
+          </sphere>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.15</mu>
+              <mu2>0.15</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+      <visual name="vis">
+        <geometry>
+          <sphere>
+            <radius>0.03</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>0.25 0.25 0.25 1</ambient>
+          <diffuse>0.25 0.25 0.25 1</diffuse>
+        </material>
+      </visual>
+    </link>
+
+    <joint name="front_caster_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>front_caster</child>
+    </joint>
+
+    <!-- 뒤 보조 캐스터 -->
+    <link name="rear_caster">
+      <pose>-0.16 0 -0.09 0 0 0</pose>
+      <inertial>
+        <mass>0.08</mass>
+        <inertia>
+          <ixx>0.00005</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.00005</iyy><iyz>0</iyz><izz>0.00005</izz>
+        </inertia>
+      </inertial>
+      <collision name="col">
+        <geometry>
+          <sphere>
+            <radius>0.03</radius>
+          </sphere>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.15</mu>
+              <mu2>0.15</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+      <visual name="vis">
+        <geometry>
+          <sphere>
+            <radius>0.03</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>0.25 0.25 0.25 1</ambient>
+          <diffuse>0.25 0.25 0.25 1</diffuse>
+        </material>
+      </visual>
+    </link>
+
+    <joint name="rear_caster_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>rear_caster</child>
+    </joint>
+
+    <!-- Diff Drive -->
+    <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>0.38</wheel_separation>
+      <wheel_radius>0.08</wheel_radius>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <topic>/cmd_vel</topic>
+      <odom_topic>/odom</odom_topic>
+      <tf_topic>/tf</tf_topic>
+      <frame_id>odom</frame_id>
+      <child_frame_id>base_link</child_frame_id>
+    </plugin>
+  </model>
+</sdf>

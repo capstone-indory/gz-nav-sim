@@ -1,0 +1,5 @@
+build/
+install/
+log/
+src/gz_nav_sim/**/__pycache__/
+src/gz_nav_sim/**/*.pyc

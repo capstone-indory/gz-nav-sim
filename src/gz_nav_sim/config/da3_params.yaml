@@ -1,0 +1,33 @@
+da3_depth_node:
+  ros__parameters:
+    image_topic: /front_camera/image_raw
+    camera_info_topic: /front_camera/camera_info
+    depth_topic: /front_camera/depth/image_raw
+    point_cloud_topic: /front_camera/depth/points
+
+    # 입력 이미지는 optical frame 기준으로 받고,
+    # DA3가 만든 3D 좌표는 로봇 카메라 링크(front_camera_frame) 기준으로 보냄
+    camera_frame: front_camera_optical_frame
+    point_cloud_frame: front_camera_frame
+
+    # auto: cuda -> mps -> cpu 순으로 선택
+    device: auto
+
+    model_id: depth-anything/DA3METRIC-LARGE
+    da3_log_level: WARN
+
+    # DA3 입력 전처리
+    process_res: 336
+    process_res_method: upper_bound_resize
+    inference_rate_hz: 2.0
+    input_views: 1
+
+    # 라이다 기반 metric scale 보정
+    scan_topic: /scan
+    lidar_scale: true
+    lidar_scale_min_points: 5
+
+    # PointCloud2 downsample 및 유효 깊이 범위
+    point_cloud_stride: 4
+    min_depth_m: 0.1
+    max_depth_m: 15.0
