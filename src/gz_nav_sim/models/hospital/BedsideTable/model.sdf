@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.6">
+  <model name="BedsideTable">
+    <link name="body">
+      <pose>0 0 0 0 0 -1.5708</pose>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://BedsideTable/meshes/BedsideTable.obj</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

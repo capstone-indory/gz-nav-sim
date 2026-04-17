@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /opt/homebrew/Caskroom/miniforge/base/envs/ros2/lib/OGRE-Next/*.dylib)",
+      "Bash(grep -i 'OgreMain' echo \"---\")",
+      "Bash(/opt/homebrew/Caskroom/miniforge/base/envs/ros2/bin/ruby -e ' *)",
+      "Bash(conda info *)",
+      "Bash(ls /opt/homebrew/Caskroom/miniforge/base/envs/ros2/bin/python*)",
+      "Bash(/opt/homebrew/Caskroom/miniforge/base/envs/ros2/bin/python3 -c ' *)",
+      "Bash(export PATH=\"/opt/homebrew/Caskroom/miniforge/base/envs/ros2/bin:$PATH\")",
+      "Bash(ls /opt/homebrew/Caskroom/miniforge/base/envs/ros2/lib/python3.12/site-packages/gz*)",
+      "Bash(grep -E \"\\\\.\\(sdf|md|txt|conf\\)$\")",
+      "Bash(grep -r \"server_api_backend\\\\|render.*server\\\\|single.process\\\\|api_backend\" /opt/homebrew/Caskroom/miniforge/base/envs/ros2/share/gz/gz-sim8/worlds/*.sdf)",
+      "Bash(find /opt/homebrew/Caskroom/miniforge/base/envs/ros2 -path \"*/lib/python*\" -prune -o -name \"*.hh\" -type f -exec grep -l \"SceneBroadcaster\\\\|state.*hertz\\\\|publish.*freq\" {} \\\\;)",
+      "Bash(grep -r \"state_hertz\\\\|publish_frequency\\\\|hertz\" /opt/homebrew/Caskroom/miniforge/base/envs/ros2/share/gz/gz-sim8/worlds/*.sdf)",
+      "Bash(find /opt/homebrew/Caskroom/miniforge/base/envs/ros2/share/gz/gz-rendering8 -name \"*.compositor\" -exec grep -l \"workspace\\\\|node\" {} \\\\;)",
+      "Bash(grep -r \"update_rate\\\\|publish_rate\\\\|broadcast\" /opt/homebrew/Caskroom/miniforge/base/envs/ros2/share/gz/gz-sim8/worlds/*.sdf)",
+      "Bash(grep -r \"single.process\\\\|combined\\\\|unified\\\\|GZ_SIM\" /opt/homebrew/Caskroom/miniforge/base/envs/ros2/include/gz/sim8/gz/sim/rendering/*.hh)",
+      "Bash(find /opt/homebrew/Caskroom/miniforge/base/envs/ros2/share/gz/gz-sim8 -name \"*.sdf\" -exec grep -l \"quality\\\\|shadow\\\\|ssao\\\\|anti\" {} \\\\;)",
+      "Bash(/opt/homebrew/Caskroom/miniforge/base/envs/ros2/bin/gz sim *)",
+      "Bash(/opt/homebrew/Caskroom/miniforge/base/envs/ros2/bin/gz topic *)",
+      "Bash(kill 39373)",
+      "Bash(cat /opt/homebrew/Caskroom/miniforge/base/envs/ros2/etc/conda/activate.d/*.sh)",
+      "Bash(pkill -f 'slam_toolbox')",
+      "Bash(pkill -f 'elevator_teleport')",
+      "Bash(pkill -f 'parameter_bridge')",
+      "Bash(pkill -f 'component_container')",
+      "Bash(pkill -f 'foxglove_bridge')",
+      "Bash(bash /tmp/rtf_test.sh /Users/haechan/indrooy/gz_nav_ws/src/gz_nav_sim/worlds/combined.world \"BASELINE \\(100Hz, all plugins, headless\\)\")"
+    ]
+  }
+}

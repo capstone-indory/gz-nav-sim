@@ -1,0 +1,29 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.6">
+  <model name="aws_robomaker_warehouse_ClutteringA_01">
+    <link name="link">
+      <inertial>
+        <mass>2</mass>
+        <inertia>
+          <ixx>0.841</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.954</iyy>
+          <iyz>0</iyz>
+          <izz>1.422</izz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://aws_robomaker_warehouse_ClutteringA_01/meshes/aws_robomaker_warehouse_ClutteringA_01_visual.DAE</uri>
+          </mesh>
+        </geometry>
+        <meta>
+          <layer> 1 </layer>
+        </meta>
+      </visual>
+    </link>
+    <static>1</static>
+  </model>
+</sdf>

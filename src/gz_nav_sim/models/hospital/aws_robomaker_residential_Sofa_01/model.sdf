@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.6">
+  <model name="aws_robomaker_residential_Sofa_01">
+    <link name="link">
+      <inertial>
+        <mass>72.5</mass>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://aws_robomaker_residential_Sofa_01/meshes/aws_Sofa_01_visual.DAE</uri>
+          </mesh>
+        </geometry>
+        <meta>
+          <layer> 1 </layer>
+        </meta>
+      </visual>
+    </link>
+  </model>
+</sdf>

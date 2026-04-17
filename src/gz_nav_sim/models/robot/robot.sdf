@@ -35,41 +35,41 @@
         </material>
       </visual>
 
-      <!-- 2D LiDAR -->
+      <!-- 2D LiDAR — SLAMTEC RPLIDAR C1 spec -->
       <sensor name="lidar" type="gpu_lidar">
         <pose>0 0 0.1 0 0 0</pose>
         <topic>/scan</topic>
         <gz_frame_id>base_link</gz_frame_id>
-        <update_rate>20</update_rate>
+        <update_rate>10</update_rate>
         <always_on>true</always_on>
         <lidar>
           <scan>
             <horizontal>
-              <samples>720</samples>
+              <samples>500</samples>
               <resolution>1</resolution>
               <min_angle>-3.14159</min_angle>
               <max_angle>3.14159</max_angle>
             </horizontal>
           </scan>
           <range>
-            <min>0.12</min>
-            <max>15.0</max>
-            <resolution>0.01</resolution>
+            <min>0.05</min>
+            <max>12.0</max>
+            <resolution>0.015</resolution>
           </range>
           <noise>
             <type>gaussian</type>
             <mean>0.0</mean>
-            <stddev>0.005</stddev>
+            <stddev>0.03</stddev>
           </noise>
         </lidar>
       </sensor>
 
       <!-- 전방 RGB 카메라 -->
       <sensor name="front_camera" type="camera">
-        <pose>0.16 0 0.08 0 0 0</pose>
+        <pose>0.16 0 0.50 0 0 0</pose>
         <topic>/front_camera/image_raw</topic>
         <gz_frame_id>front_camera_optical_frame</gz_frame_id>
-        <update_rate>20</update_rate>
+        <update_rate>10</update_rate>
         <always_on>true</always_on>
         <camera>
           <camera_info_topic>/front_camera/camera_info</camera_info_topic>
@@ -82,7 +82,7 @@
           </image>
           <clip>
             <near>0.05</near>
-            <far>20.0</far>
+            <far>15.0</far>
           </clip>
           <noise>
             <type>gaussian</type>
@@ -197,40 +197,57 @@
       </axis>
     </joint>
 
-    <!-- 앞 보조 캐스터 -->
+    <!-- 앞 보조 캐스터 (rigid body, visual only caster wheel) -->
     <link name="front_caster">
-      <pose>0.16 0 -0.09 0 0 0</pose>
+      <pose>0.16 0 -0.08 -1.5708 0 0</pose>
       <inertial>
-        <mass>0.08</mass>
+        <mass>0.10</mass>
         <inertia>
-          <ixx>0.00005</ixx><ixy>0</ixy><ixz>0</ixz>
-          <iyy>0.00005</iyy><iyz>0</iyz><izz>0.00005</izz>
+          <ixx>0.0001</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.0001</iyy><iyz>0</iyz><izz>0.0001</izz>
         </inertia>
       </inertial>
       <collision name="col">
         <geometry>
           <sphere>
-            <radius>0.03</radius>
+            <radius>0.04</radius>
           </sphere>
         </geometry>
         <surface>
           <friction>
             <ode>
-              <mu>0.15</mu>
-              <mu2>0.15</mu2>
+              <mu>0.1</mu>
+              <mu2>0.1</mu2>
             </ode>
           </friction>
         </surface>
       </collision>
-      <visual name="vis">
+      <!-- Cylinder visual for a more realistic castor-wheel appearance -->
+      <visual name="wheel_vis">
         <geometry>
-          <sphere>
-            <radius>0.03</radius>
-          </sphere>
+          <cylinder>
+            <radius>0.04</radius>
+            <length>0.03</length>
+          </cylinder>
         </geometry>
         <material>
-          <ambient>0.25 0.25 0.25 1</ambient>
-          <diffuse>0.25 0.25 0.25 1</diffuse>
+          <ambient>0.18 0.18 0.20 1</ambient>
+          <diffuse>0.18 0.18 0.20 1</diffuse>
+          <specular>0.4 0.4 0.4 1</specular>
+        </material>
+      </visual>
+      <visual name="hub_vis">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.018</radius>
+            <length>0.034</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.70 0.70 0.72 1</ambient>
+          <diffuse>0.70 0.70 0.72 1</diffuse>
+          <specular>0.8 0.8 0.8 1</specular>
         </material>
       </visual>
     </link>
@@ -240,40 +257,57 @@
       <child>front_caster</child>
     </joint>
 
-    <!-- 뒤 보조 캐스터 -->
+    <!-- 뒤 보조 캐스터 (rigid body, visual only caster wheel) -->
     <link name="rear_caster">
-      <pose>-0.16 0 -0.09 0 0 0</pose>
+      <pose>-0.16 0 -0.08 -1.5708 0 0</pose>
       <inertial>
-        <mass>0.08</mass>
+        <mass>0.10</mass>
         <inertia>
-          <ixx>0.00005</ixx><ixy>0</ixy><ixz>0</ixz>
-          <iyy>0.00005</iyy><iyz>0</iyz><izz>0.00005</izz>
+          <ixx>0.0001</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.0001</iyy><iyz>0</iyz><izz>0.0001</izz>
         </inertia>
       </inertial>
       <collision name="col">
         <geometry>
           <sphere>
-            <radius>0.03</radius>
+            <radius>0.04</radius>
           </sphere>
         </geometry>
         <surface>
           <friction>
             <ode>
-              <mu>0.15</mu>
-              <mu2>0.15</mu2>
+              <mu>0.1</mu>
+              <mu2>0.1</mu2>
             </ode>
           </friction>
         </surface>
       </collision>
-      <visual name="vis">
+      <!-- Cylinder visual for a more realistic castor-wheel appearance -->
+      <visual name="wheel_vis">
         <geometry>
-          <sphere>
-            <radius>0.03</radius>
-          </sphere>
+          <cylinder>
+            <radius>0.04</radius>
+            <length>0.03</length>
+          </cylinder>
         </geometry>
         <material>
-          <ambient>0.25 0.25 0.25 1</ambient>
-          <diffuse>0.25 0.25 0.25 1</diffuse>
+          <ambient>0.18 0.18 0.20 1</ambient>
+          <diffuse>0.18 0.18 0.20 1</diffuse>
+          <specular>0.4 0.4 0.4 1</specular>
+        </material>
+      </visual>
+      <visual name="hub_vis">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.018</radius>
+            <length>0.034</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.70 0.70 0.72 1</ambient>
+          <diffuse>0.70 0.70 0.72 1</diffuse>
+          <specular>0.8 0.8 0.8 1</specular>
         </material>
       </visual>
     </link>

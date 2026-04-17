@@ -1,0 +1,2789 @@
+{
+  "office": [
+    {
+      "name": "ceiling",
+      "pose": [
+        -11.25,
+        -2.97,
+        3.0,
+        0.0,
+        3.14159,
+        1.5708
+      ]
+    },
+    {
+      "name": "floor",
+      "pose": [
+        -11.25,
+        -2.97,
+        -0.001,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "walls",
+      "pose": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PublicBathroomA",
+      "pose": [
+        -3.0,
+        9.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PublicBathroomB",
+      "pose": [
+        -3.0,
+        12.1,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PublicCafe",
+      "pose": [
+        -6.0,
+        13.7,
+        0.0,
+        0.0,
+        0.0,
+        3.14159
+      ]
+    },
+    {
+      "name": "PublicMeetingRoomA",
+      "pose": [
+        -16.5,
+        18.0,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PublicMeetingRoomB",
+      "pose": [
+        -7.5,
+        4.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "PublicMeetingRoomC",
+      "pose": [
+        -13.6,
+        4.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "PublicMeetingRoomD",
+      "pose": [
+        -19.5,
+        8.9,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PublicMeetingRoomE",
+      "pose": [
+        -19.5,
+        4.3,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PrivateMeetingRoomA",
+      "pose": [
+        -7.5,
+        -4.6,
+        0.0,
+        0.0,
+        0.0,
+        3.14159
+      ]
+    },
+    {
+      "name": "PrivateMeetingRoomB",
+      "pose": [
+        -13.6,
+        -4.6,
+        0.0,
+        0.0,
+        0.0,
+        3.14159
+      ]
+    },
+    {
+      "name": "PrivateBathroomA",
+      "pose": [
+        -19.5,
+        -4.5,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PrivateBathroomB",
+      "pose": [
+        -19.5,
+        -7.6,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PrivateOfficeA",
+      "pose": [
+        -19.5,
+        -12.2,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PrivateOfficeB",
+      "pose": [
+        -19.5,
+        -16.8,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PrivateOfficeC",
+      "pose": [
+        -19.5,
+        -21.4,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PrivateOfficeD",
+      "pose": [
+        -18.0,
+        -23.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "PrivateMeetingRoomC",
+      "pose": [
+        -4.5,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PrivateMeetingRoomD",
+      "pose": [
+        -4.5,
+        -18.1,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PrivateMeetingRoomE",
+      "pose": [
+        -4.5,
+        -24.2,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PublicCubicle_25",
+      "pose": [
+        -7.5,
+        9.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PublicCubicle_26",
+      "pose": [
+        -13.5,
+        9.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PublicCubicle_27",
+      "pose": [
+        -10.6,
+        13.6,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PublicCubicle_28",
+      "pose": [
+        -10.6,
+        15.5,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PublicCubicle_29",
+      "pose": [
+        -10.6,
+        17.4,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PublicCubicle_30",
+      "pose": [
+        -10.6,
+        19.3,
+        0.0,
+        0.0,
+        0.0,
+        4.71239
+      ]
+    },
+    {
+      "name": "PrivateCubicle_31",
+      "pose": [
+        -7.5,
+        -21.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PrivateCubicle_32",
+      "pose": [
+        -12.0,
+        -21.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PrivateCubicle_33",
+      "pose": [
+        -16.5,
+        -21.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PrivateCubicle_34",
+      "pose": [
+        -7.5,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PrivateCubicle_35",
+      "pose": [
+        -12.0,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PrivateCubicle_36",
+      "pose": [
+        -16.5,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "PrivateCafe",
+      "pose": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "BackEntrance",
+      "pose": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "FrontEntrance",
+      "pose": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "office_ceiling_0",
+      "pose": [
+        -17.5,
+        -22.2,
+        2.8,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "office_ceiling_1",
+      "pose": [
+        -17.5,
+        -9.033333333333333,
+        2.8,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "office_ceiling_2",
+      "pose": [
+        -17.5,
+        4.133333333333333,
+        2.8,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "office_ceiling_3",
+      "pose": [
+        -17.5,
+        17.3,
+        2.8,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "office_ceiling_4",
+      "pose": [
+        -2.0,
+        -22.2,
+        2.8,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "office_ceiling_5",
+      "pose": [
+        -2.0,
+        -9.033333333333333,
+        2.8,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "office_ceiling_6",
+      "pose": [
+        -2.0,
+        4.133333333333333,
+        2.8,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "office_ceiling_7",
+      "pose": [
+        -2.0,
+        17.3,
+        2.8,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "hospital": [
+    {
+      "name": "hospital_aws_robomaker_hospital_floor_01_floor_1",
+      "pose": [
+        150.011,
+        -0.041622,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_floor_01_walls_1",
+      "pose": [
+        149.986,
+        -0.013783,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_nursesstation_01_1",
+      "pose": [
+        150.0,
+        1.5,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_elevator_01_portal_1",
+      "pose": [
+        148.493,
+        19.4813,
+        0.19,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_elevator_01_portal_2",
+      "pose": [
+        151.511,
+        19.487,
+        0.19,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_elevator_01_car_1",
+      "pose": [
+        148.504,
+        19.35,
+        0.19,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_elevator_01_car_2",
+      "pose": [
+        151.541,
+        19.35,
+        0.19,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_elevator_01_door_1",
+      "pose": [
+        148.49,
+        19.35,
+        0.19,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_elevator_01_door_2",
+      "pose": [
+        151.528,
+        19.3627,
+        0.19,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_half_open_01_1",
+      "pose": [
+        138.978,
+        -13.8069,
+        0.0,
+        0.0,
+        -0.0,
+        1.55358
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_closed_01_1",
+      "pose": [
+        138.978,
+        -7.27757,
+        0.0,
+        0.0,
+        -0.0,
+        1.57907
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_half_open_01_2",
+      "pose": [
+        161.142,
+        -21.4039,
+        0.0,
+        0.0,
+        0.0,
+        -1.55117
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_half_open_01_3",
+      "pose": [
+        161.107,
+        -17.8472,
+        0.0,
+        0.0,
+        0.0,
+        -1.55117
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_half_open_01_4",
+      "pose": [
+        161.137,
+        -14.1551,
+        0.0,
+        0.0,
+        0.0,
+        -1.55117
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_half_open_01_5",
+      "pose": [
+        138.967,
+        -17.61,
+        0.0,
+        0.0,
+        -0.0,
+        1.55358
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_half_open_01_6",
+      "pose": [
+        138.991,
+        -21.7566,
+        0.0,
+        0.0,
+        -0.0,
+        1.55358
+      ]
+    },
+    {
+      "name": "hospital_CGMClassic_1",
+      "pose": [
+        161.178,
+        -18.4129,
+        0.0,
+        0.0,
+        0.0,
+        -1.5656
+      ]
+    },
+    {
+      "name": "hospital_StorageRack_1",
+      "pose": [
+        159.07,
+        -10.3582,
+        -754989000.0,
+        -2e-06,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_CGMClassic_2",
+      "pose": [
+        161.118,
+        -14.6493,
+        0.0,
+        0.0,
+        0.0,
+        -1.5656
+      ]
+    },
+    {
+      "name": "hospital_VisitorChair_1",
+      "pose": [
+        148.995,
+        -0.786961,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_VisitorChair_2",
+      "pose": [
+        150.899,
+        -0.744049,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_InstrumentCart1_1",
+      "pose": [
+        138.388,
+        -12.2426,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_OpScrubs_1",
+      "pose": [
+        140.381,
+        -12.5112,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_OpScrubs_2",
+      "pose": [
+        150.055,
+        4.05849,
+        0.0,
+        0.0,
+        -0.0,
+        3.12413
+      ]
+    },
+    {
+      "name": "hospital_PatientWheelChair_1",
+      "pose": [
+        144.539,
+        1.23577,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_OpScrubs_3",
+      "pose": [
+        144.615,
+        1.82526,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_WhiteChipChair_1",
+      "pose": [
+        141.129,
+        9.15707,
+        -754989000.0,
+        0.0,
+        -0.152685,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_TrolleyBed_1",
+      "pose": [
+        154.859,
+        -4.87229,
+        -754989000.0,
+        0.0,
+        -1e-06,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_SurgicalTrolley_1",
+      "pose": [
+        161.43,
+        3.56328,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_CGMClassic_3",
+      "pose": [
+        138.77,
+        -21.1134,
+        0.0,
+        0.0,
+        -0.0,
+        1.56641
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_1",
+      "pose": [
+        142.097,
+        6.49258,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_2",
+      "pose": [
+        142.105,
+        8.01997,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_3",
+      "pose": [
+        143.609,
+        6.45458,
+        0.0,
+        0.0,
+        0.0,
+        -3.13096
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_4",
+      "pose": [
+        143.586,
+        8.00716,
+        0.0,
+        0.0,
+        0.0,
+        -3.13096
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_5",
+      "pose": [
+        143.676,
+        6.47504,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_6",
+      "pose": [
+        143.676,
+        8.03277,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_7",
+      "pose": [
+        145.169,
+        6.47504,
+        0.0,
+        0.0,
+        0.0,
+        -3.13096
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_8",
+      "pose": [
+        145.143,
+        8.03277,
+        0.0,
+        0.0,
+        0.0,
+        -3.13096
+      ]
+    },
+    {
+      "name": "hospital_VisitorKidSit_1",
+      "pose": [
+        142.308,
+        6.9857,
+        0.0,
+        0.0,
+        -0.0,
+        1.56778
+      ]
+    },
+    {
+      "name": "hospital_FemaleVisitorSit_1",
+      "pose": [
+        142.386,
+        7.50057,
+        0.0,
+        0.0,
+        -0.0,
+        1.60052
+      ]
+    },
+    {
+      "name": "hospital_AdjTable_1",
+      "pose": [
+        151.217,
+        -5.60888,
+        0.0,
+        0.0,
+        0.0,
+        -0.008733
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_9",
+      "pose": [
+        158.189,
+        6.61196,
+        0.0,
+        0.0,
+        -0.0,
+        3.13621
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_10",
+      "pose": [
+        158.189,
+        8.16786,
+        0.0,
+        0.0,
+        -0.0,
+        3.13621
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_11",
+      "pose": [
+        156.803,
+        6.60106,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_12",
+      "pose": [
+        156.803,
+        8.1542,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_13",
+      "pose": [
+        156.737,
+        6.5915,
+        0.0,
+        0.0,
+        -0.0,
+        3.13621
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_14",
+      "pose": [
+        156.75,
+        8.15453,
+        0.0,
+        0.0,
+        -0.0,
+        3.13621
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_15",
+      "pose": [
+        155.179,
+        6.59309,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_PotatoChipChair_16",
+      "pose": [
+        155.181,
+        8.14489,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_CoffeeTable_01_1",
+      "pose": [
+        139.762,
+        -29.9144,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_Sofa_01_1",
+      "pose": [
+        138.923,
+        -30.5544,
+        -1e-05,
+        2.6e-05,
+        -3e-06,
+        1.56983
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_TV_02_1",
+      "pose": [
+        137.588,
+        -28.4594,
+        1.53211,
+        0.0,
+        -0.0,
+        3.13999
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_KitchenCabinet_01_1",
+      "pose": [
+        138.862,
+        -25.6941,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_Refrigerator_01_1",
+      "pose": [
+        140.718,
+        -24.5015,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_SofaB_01_1",
+      "pose": [
+        139.176,
+        -28.6662,
+        -0.0,
+        -3e-06,
+        -3e-06,
+        -1.56116
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_SofaB_01_2",
+      "pose": [
+        140.263,
+        -28.6538,
+        -5e-06,
+        2.3e-05,
+        -5e-06,
+        -1.56078
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitA_01_1",
+      "pose": [
+        151.147,
+        -6.92303,
+        1.41115,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_02_1",
+      "pose": [
+        152.408,
+        -3.61975,
+        1.54508,
+        0.0,
+        0.0,
+        -1.57619
+      ]
+    },
+    {
+      "name": "hospital_MopCart3_1",
+      "pose": [
+        151.077,
+        -8.59036,
+        -6.4e-05,
+        -1e-06,
+        1e-06,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_MaleVisitorSit_1",
+      "pose": [
+        156.413,
+        8.18749,
+        0.0,
+        0.000578,
+        -0.0,
+        -1.56624
+      ]
+    },
+    {
+      "name": "hospital_Drawer_1",
+      "pose": [
+        153.185,
+        -6.54185,
+        0.0,
+        0.0,
+        0.0,
+        -1.55907
+      ]
+    },
+    {
+      "name": "hospital_Drawer_2",
+      "pose": [
+        153.191,
+        -5.94838,
+        0.0,
+        0.0,
+        0.0,
+        -1.55907
+      ]
+    },
+    {
+      "name": "hospital_OfficeChairBlack_1",
+      "pose": [
+        151.202,
+        -6.39435,
+        0.0,
+        0.0,
+        -0.0,
+        3.13125
+      ]
+    },
+    {
+      "name": "hospital_OfficeChairBlack_2",
+      "pose": [
+        148.747,
+        -6.4505,
+        0.0,
+        0.0,
+        -0.0,
+        3.13125
+      ]
+    },
+    {
+      "name": "hospital_AdjTable_2",
+      "pose": [
+        148.733,
+        -5.69226,
+        0.0,
+        0.0,
+        0.0,
+        -0.008733
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitA_01_2",
+      "pose": [
+        149.294,
+        -6.93108,
+        1.41115,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitA_01_3",
+      "pose": [
+        148.028,
+        -6.9216,
+        1.41115,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_Drawer_3",
+      "pose": [
+        146.98,
+        -6.54343,
+        0.0,
+        0.0,
+        -0.0,
+        1.56555
+      ]
+    },
+    {
+      "name": "hospital_Drawer_4",
+      "pose": [
+        147.002,
+        -5.94782,
+        0.0,
+        0.0,
+        -0.0,
+        1.56555
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_02_2",
+      "pose": [
+        147.567,
+        -3.38621,
+        1.54508,
+        0.0,
+        -0.0,
+        1.57083
+      ]
+    },
+    {
+      "name": "hospital_ElderLadyPatient_1",
+      "pose": [
+        139.003,
+        0.231354,
+        0.001655,
+        0.0,
+        -1e-06,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ElderLadyPatient_2",
+      "pose": [
+        139.187,
+        -13.5925,
+        0.001656,
+        0.0,
+        -0.0,
+        -0.025052
+      ]
+    },
+    {
+      "name": "hospital_CGMClassic_4",
+      "pose": [
+        138.912,
+        -7.00992,
+        0.0,
+        0.0,
+        -0.0,
+        1.56296
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_Trash_01_1",
+      "pose": [
+        150.316,
+        -6.58235,
+        0.000894,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_Trash_01_2",
+      "pose": [
+        149.563,
+        -6.57758,
+        0.000903,
+        1e-06,
+        1e-06,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_Trash_01_3",
+      "pose": [
+        137.823,
+        -27.6293,
+        0.000903,
+        -2e-06,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitE_01_1",
+      "pose": [
+        140.939,
+        -31.9238,
+        1.38136,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitE_01_2",
+      "pose": [
+        138.26,
+        -31.9011,
+        1.38136,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_InstrumentCart1_2",
+      "pose": [
+        138.193,
+        -16.1825,
+        0.0,
+        0.0,
+        -0.0,
+        1.56702
+      ]
+    },
+    {
+      "name": "hospital_ElderMalePatient_1",
+      "pose": [
+        138.883,
+        -17.2377,
+        0.001655,
+        0.0,
+        2e-06,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_InstrumentCart2_1",
+      "pose": [
+        137.909,
+        -1.87329,
+        0.051875,
+        0.0,
+        -0.0,
+        1.57773
+      ]
+    },
+    {
+      "name": "hospital_InstrumentCart2_2",
+      "pose": [
+        138.477,
+        1.34237,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_Carpet_01_1",
+      "pose": [
+        139.266,
+        -29.9243,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_MetalCabinet_1",
+      "pose": [
+        138.887,
+        11.6546,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_MetalCabinet_2",
+      "pose": [
+        138.812,
+        4.2888,
+        0.0,
+        0.0,
+        -0.0,
+        3.1387
+      ]
+    },
+    {
+      "name": "hospital_CGMClassic_5",
+      "pose": [
+        138.989,
+        8.9505,
+        -0.008203,
+        0.0004,
+        -0.035019,
+        1.56285
+      ]
+    },
+    {
+      "name": "hospital_CGMClassic_6",
+      "pose": [
+        138.975,
+        7.10335,
+        0.0,
+        0.0,
+        -0.035021,
+        1.57427
+      ]
+    },
+    {
+      "name": "hospital_BedTable_1",
+      "pose": [
+        139.524,
+        1.39442,
+        0.001186,
+        0.0,
+        2e-06,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_BedTable_2",
+      "pose": [
+        139.027,
+        -2.66105,
+        0.001182,
+        0.0,
+        -0.0,
+        -0.017818
+      ]
+    },
+    {
+      "name": "hospital_BedTable_3",
+      "pose": [
+        139.413,
+        -12.5084,
+        0.001189,
+        0.0,
+        -0.0,
+        3.11588
+      ]
+    },
+    {
+      "name": "hospital_BedsideTable_1",
+      "pose": [
+        137.908,
+        -2.61243,
+        0.000179,
+        1e-06,
+        -0.0,
+        0.05292
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_half_open_01_7",
+      "pose": [
+        138.957,
+        0.066126,
+        0.0,
+        0.0,
+        -0.0,
+        1.56614
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_half_open_01_8",
+      "pose": [
+        138.969,
+        -3.75145,
+        0.0,
+        0.0,
+        -0.0,
+        1.56614
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_floor_01_ceiling_1",
+      "pose": [
+        150.017,
+        0.050728,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_ramp_01_1",
+      "pose": [
+        148.29,
+        16.3685,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_AnesthesiaMachine_1",
+      "pose": [
+        152.553,
+        -21.7619,
+        0.0,
+        0.0,
+        0.0,
+        -1.56931
+      ]
+    },
+    {
+      "name": "hospital_AnesthesiaMachine_2",
+      "pose": [
+        148.715,
+        -21.1127,
+        0.0,
+        0.0,
+        0.0,
+        -3.12971
+      ]
+    },
+    {
+      "name": "hospital_TrolleyBedPatient_1",
+      "pose": [
+        148.168,
+        -19.2612,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_TrolleyBed_2",
+      "pose": [
+        151.553,
+        -19.2199,
+        -1e-06,
+        0.0,
+        -2e-06,
+        0.007695
+      ]
+    },
+    {
+      "name": "hospital_OpScrubs_4",
+      "pose": [
+        149.064,
+        -18.2252,
+        0.0,
+        0.0,
+        0.0,
+        -3.12479
+      ]
+    },
+    {
+      "name": "hospital_Shower_1",
+      "pose": [
+        148.926,
+        -16.1332,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_Shower_2",
+      "pose": [
+        150.853,
+        -16.1492,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_SurgicalTrolleyMed_1",
+      "pose": [
+        147.184,
+        -19.9072,
+        0.0,
+        0.0,
+        0.0,
+        -1.56931
+      ]
+    },
+    {
+      "name": "hospital_SurgicalTrolley_2",
+      "pose": [
+        149.104,
+        -19.3527,
+        0.0,
+        0.0,
+        0.0,
+        -1.58175
+      ]
+    },
+    {
+      "name": "hospital_SurgicalTrolley_3",
+      "pose": [
+        152.333,
+        -19.6614,
+        0.0,
+        0.0,
+        -0.0,
+        1.57031
+      ]
+    },
+    {
+      "name": "hospital_SurgicalTrolleyMed_2",
+      "pose": [
+        150.771,
+        -19.7749,
+        0.0,
+        0.0,
+        0.0,
+        -1.56798
+      ]
+    },
+    {
+      "name": "hospital_OpScrubs_5",
+      "pose": [
+        147.337,
+        -18.9847,
+        0.0,
+        0.0,
+        -0.0,
+        1.57704
+      ]
+    },
+    {
+      "name": "hospital_InstrumentCart1_3",
+      "pose": [
+        148.165,
+        -17.5879,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_InstrumentCart2_3",
+      "pose": [
+        149.13,
+        -17.7436,
+        0.0,
+        0.0,
+        0.0,
+        -0.002595
+      ]
+    },
+    {
+      "name": "hospital_StorageRackCovered_1",
+      "pose": [
+        150.942,
+        -22.3963,
+        -0.0,
+        0.0,
+        -0.0,
+        3.13389
+      ]
+    },
+    {
+      "name": "hospital_StorageRack_2",
+      "pose": [
+        147.301,
+        -22.4178,
+        -0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_KitchenSink_1",
+      "pose": [
+        153.062,
+        -11.8809,
+        -0.001614,
+        0.0,
+        -0.0,
+        3.1391
+      ]
+    },
+    {
+      "name": "hospital_KitchenSink_2",
+      "pose": [
+        146.907,
+        -11.8988,
+        -0.001619,
+        -0.0,
+        -0.0,
+        -0.0
+      ]
+    },
+    {
+      "name": "hospital_Toilet_1",
+      "pose": [
+        150.464,
+        -11.8023,
+        0.00545,
+        0.0,
+        0.017484,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_Toilet_2",
+      "pose": [
+        149.454,
+        -11.8033,
+        0.000387,
+        0.0,
+        -0.0,
+        -3.139
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_01_1",
+      "pose": [
+        148.853,
+        -10.143,
+        1.57344,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_01_2",
+      "pose": [
+        151.17,
+        -10.1327,
+        1.57344,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_01_3",
+      "pose": [
+        151.27,
+        -12.9084,
+        1.57344,
+        0.0,
+        0.0,
+        -3.14134
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_01_4",
+      "pose": [
+        148.939,
+        -12.9155,
+        1.57344,
+        0.0,
+        0.0,
+        -3.14134
+      ]
+    },
+    {
+      "name": "hospital_Toilet_3",
+      "pose": [
+        157.484,
+        1.42958,
+        0.000387,
+        -1e-06,
+        -0.0,
+        -3.13589
+      ]
+    },
+    {
+      "name": "hospital_Toilet_4",
+      "pose": [
+        142.988,
+        1.4183,
+        0.000377,
+        0.0,
+        0.0,
+        -3.13589
+      ]
+    },
+    {
+      "name": "hospital_Toilet_5",
+      "pose": [
+        142.971,
+        -12.7728,
+        0.000386,
+        -1e-06,
+        -0.0,
+        -3.13589
+      ]
+    },
+    {
+      "name": "hospital_Toilet_6",
+      "pose": [
+        157.487,
+        -12.617,
+        0.000386,
+        -0.0,
+        1e-06,
+        -3.13589
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_02_3",
+      "pose": [
+        157.893,
+        -13.6155,
+        1.54508,
+        0.0,
+        0.0,
+        -1.57619
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_02_4",
+      "pose": [
+        157.888,
+        0.445446,
+        1.54508,
+        0.0,
+        0.0,
+        -1.57619
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_02_5",
+      "pose": [
+        142.079,
+        0.84255,
+        1.54508,
+        0.0,
+        -0.0,
+        1.57083
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_02_6",
+      "pose": [
+        142.091,
+        -13.3417,
+        1.54508,
+        0.0,
+        -0.0,
+        1.57083
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_02_7",
+      "pose": [
+        137.616,
+        6.01232,
+        1.54508,
+        0.0,
+        -0.0,
+        1.57083
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_02_8",
+      "pose": [
+        137.572,
+        9.98828,
+        1.54508,
+        0.0,
+        -0.0,
+        1.57083
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitE_02_1",
+      "pose": [
+        140.911,
+        9.19494,
+        1.84129,
+        0.0,
+        0.0,
+        -1.5625
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_02_9",
+      "pose": [
+        141.055,
+        7.73571,
+        1.54508,
+        0.0,
+        -0.0,
+        1.57083
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitE_02_2",
+      "pose": [
+        140.917,
+        7.04089,
+        1.84129,
+        0.0,
+        0.0,
+        -1.5625
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_01_5",
+      "pose": [
+        140.085,
+        11.9172,
+        1.40573,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_01_6",
+      "pose": [
+        139.787,
+        7.89752,
+        1.40573,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_VendingMachine_1",
+      "pose": [
+        141.394,
+        9.57801,
+        4.9e-05,
+        0.000173,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "hospital_VendingMachine_2",
+      "pose": [
+        158.576,
+        9.83528,
+        -1e-06,
+        0.0,
+        -1e-06,
+        -1.5744
+      ]
+    },
+    {
+      "name": "hospital_CGMClassic_7",
+      "pose": [
+        160.617,
+        9.06291,
+        -0.008203,
+        0.0004,
+        -0.035019,
+        1.56285
+      ]
+    },
+    {
+      "name": "hospital_CGMClassic_8",
+      "pose": [
+        160.601,
+        6.90956,
+        -0.008203,
+        0.0004,
+        -0.035019,
+        1.56285
+      ]
+    },
+    {
+      "name": "hospital_MetalCabinet_3",
+      "pose": [
+        161.136,
+        4.33826,
+        0.0,
+        0.0,
+        -0.0,
+        3.1387
+      ]
+    },
+    {
+      "name": "hospital_MetalCabinet_4",
+      "pose": [
+        161.132,
+        11.6838,
+        0.0,
+        0.0,
+        0.0,
+        -0.023701
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_02_10",
+      "pose": [
+        159.065,
+        6.78742,
+        1.54508,
+        0.0,
+        -0.0,
+        1.57083
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_02_11",
+      "pose": [
+        159.065,
+        9.05858,
+        1.54508,
+        0.0,
+        -0.0,
+        1.57083
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitE_02_3",
+      "pose": [
+        162.397,
+        6.98849,
+        1.84129,
+        0.0,
+        0.0,
+        -1.5625
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitE_02_4",
+      "pose": [
+        162.397,
+        8.87466,
+        1.84129,
+        0.0,
+        0.0,
+        -1.5625
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitE_02_5",
+      "pose": [
+        146.561,
+        -6.00525,
+        1.84129,
+        0.0,
+        -0.0,
+        1.56777
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_01_7",
+      "pose": [
+        160.596,
+        7.88308,
+        1.40573,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitD_01_8",
+      "pose": [
+        159.989,
+        11.914,
+        1.40573,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ParkingTrolleyMin_1",
+      "pose": [
+        150.716,
+        -17.1496,
+        -0.000111,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_PatientFSit_1",
+      "pose": [
+        139.11,
+        9.18683,
+        0.228965,
+        0.0,
+        -0.0,
+        1.58161
+      ]
+    },
+    {
+      "name": "hospital_MaleVisitorOnPhone_1",
+      "pose": [
+        149.24,
+        7.58474,
+        0.0,
+        0.0,
+        0.0,
+        -1.14974
+      ]
+    },
+    {
+      "name": "hospital_FemaleVisitor_1",
+      "pose": [
+        150.417,
+        7.44353,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_MaleVisitorSit_2",
+      "pose": [
+        144.014,
+        6.41261,
+        0.0,
+        0.0,
+        -0.0,
+        1.58808
+      ]
+    },
+    {
+      "name": "hospital_OpScrubs_6",
+      "pose": [
+        149.053,
+        -20.3884,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_open_01_1",
+      "pose": [
+        161.005,
+        -6.91002,
+        0.0,
+        0.0,
+        0.0,
+        -1.58737
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_closed_01_2",
+      "pose": [
+        161.03,
+        -3.70124,
+        0.0,
+        0.0,
+        0.0,
+        -1.58306
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_closed_01_3",
+      "pose": [
+        160.959,
+        0.159483,
+        0.0,
+        0.0,
+        0.0,
+        -1.58306
+      ]
+    },
+    {
+      "name": "hospital_MalePatientBed_1",
+      "pose": [
+        161.377,
+        -7.38891,
+        0.001655,
+        -1e-06,
+        -5e-06,
+        3.11598
+      ]
+    },
+    {
+      "name": "hospital_CGMClassic_9",
+      "pose": [
+        161.361,
+        -21.8867,
+        0.0,
+        0.0,
+        0.0,
+        -1.5656
+      ]
+    },
+    {
+      "name": "hospital_StorageRackCoverOpen_1",
+      "pose": [
+        159.15,
+        3.44263,
+        -0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_warehouse_ClutteringC_01_1",
+      "pose": [
+        139.445,
+        15.0297,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_warehouse_ClutteringA_01_1",
+      "pose": [
+        160.823,
+        15.2153,
+        0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_StorageRack_3",
+      "pose": [
+        139.882,
+        -10.4694,
+        -0.0,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_StorageRack_4",
+      "pose": [
+        140.084,
+        3.5644,
+        -8e-06,
+        0.0,
+        3e-06,
+        -0.000273
+      ]
+    },
+    {
+      "name": "hospital_StorageRackCovered_2",
+      "pose": [
+        160.294,
+        -10.577,
+        -0.0,
+        0.0,
+        -0.0,
+        3.13389
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_closed_01_4",
+      "pose": [
+        160.982,
+        -26.2149,
+        0.0,
+        0.0,
+        0.0,
+        -1.58306
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_closed_01_5",
+      "pose": [
+        151.315,
+        -30.5771,
+        0.0,
+        0.0,
+        -0.0,
+        3.1401
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_closed_01_6",
+      "pose": [
+        155.497,
+        -30.5364,
+        0.0,
+        0.0,
+        -0.0,
+        3.1401
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_hospital_curtain_closed_01_7",
+      "pose": [
+        159.8,
+        -30.5918,
+        0.0,
+        0.0,
+        -0.0,
+        3.1401
+      ]
+    },
+    {
+      "name": "hospital_FemaleVisitorSit_2",
+      "pose": [
+        157.85,
+        6.59766,
+        0.0,
+        0.0,
+        0.0,
+        -1.5621
+      ]
+    },
+    {
+      "name": "hospital_InstrumentCart1_4",
+      "pose": [
+        161.96,
+        -8.45228,
+        0.0,
+        0.0,
+        0.0,
+        -1.59885
+      ]
+    },
+    {
+      "name": "hospital_ParkingTrolleyMax_1",
+      "pose": [
+        157.711,
+        -25.1326,
+        -0.000111,
+        0.0,
+        -1e-06,
+        -1.59536
+      ]
+    },
+    {
+      "name": "hospital_ElderMalePatient_2",
+      "pose": [
+        138.591,
+        -3.56744,
+        0.001654,
+        0.0,
+        0.0,
+        -0.009674
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitE_02_6",
+      "pose": [
+        146.258,
+        14.8725,
+        1.54379,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_aws_robomaker_residential_PortraitE_01_3",
+      "pose": [
+        153.857,
+        14.8779,
+        1.69742,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_0",
+      "pose": [
+        149.805,
+        13.8034,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_1",
+      "pose": [
+        156.3,
+        8.9551,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_2",
+      "pose": [
+        150.212,
+        2.1354,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_3",
+      "pose": [
+        144.189,
+        7.18327,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_4",
+      "pose": [
+        145.456,
+        -3.67312,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_5",
+      "pose": [
+        145.629,
+        -14.4782,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_6",
+      "pose": [
+        145.605,
+        -24.5382,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_7",
+      "pose": [
+        145.101,
+        -33.5301,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_8",
+      "pose": [
+        154.64,
+        -24.4587,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_9",
+      "pose": [
+        154.926,
+        -14.3923,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_10",
+      "pose": [
+        154.701,
+        -3.77715,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_11",
+      "pose": [
+        140.975,
+        14.516,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_12",
+      "pose": [
+        159.125,
+        14.4234,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_13",
+      "pose": [
+        159.498,
+        -5.56304,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_14",
+      "pose": [
+        140.532,
+        -4.74662,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_15",
+      "pose": [
+        140.531,
+        -19.0778,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_16",
+      "pose": [
+        140.578,
+        -28.0708,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_17",
+      "pose": [
+        151.663,
+        -11.4026,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_18",
+      "pose": [
+        148.352,
+        -19.4418,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_19",
+      "pose": [
+        151.858,
+        -19.3856,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_20",
+      "pose": [
+        146.259,
+        -4.44142,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_21",
+      "pose": [
+        148.283,
+        -11.3151,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_22",
+      "pose": [
+        140.391,
+        -14.3792,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_23",
+      "pose": [
+        141.104,
+        0.199867,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_24",
+      "pose": [
+        158.803,
+        1.99908,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_25",
+      "pose": [
+        160.615,
+        10.2443,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_26",
+      "pose": [
+        160.707,
+        5.95677,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_27",
+      "pose": [
+        139.373,
+        10.4097,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_28",
+      "pose": [
+        139.229,
+        6.05323,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_29",
+      "pose": [
+        140.354,
+        -30.5079,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_30",
+      "pose": [
+        138.083,
+        -24.6051,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_31",
+      "pose": [
+        145.703,
+        11.4852,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_32",
+      "pose": [
+        153.413,
+        12.0406,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "hospital_ceiling_light_33",
+      "pose": [
+        149.819,
+        7.28878,
+        2.8,
+        0.0,
+        -0.0,
+        0.0
+      ]
+    }
+  ]
+}

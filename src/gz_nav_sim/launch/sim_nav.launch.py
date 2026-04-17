@@ -4,7 +4,9 @@
   ros2 launch gz_nav_sim sim_nav.launch.py headless:=true use_foxglove:=true
 
 SLAM이 자동으로 map→odom TF와 /map 토픽을 제공합니다. 초기 포즈 별도 설정 불필요.
-로봇 스폰 위치: 복도 서단 (-8.5, 0.0)
+월드: combined.world — office (origin) + hospital (+150m on X) 머지 맵.
+로봇 스폰 위치: office 내부 (0, -3), 엘리베이터 방향(+Y) 바라봄.
+엘리베이터 이동: /elevator/call 에 std_msgs/Empty publish (현재 존에 따라 반대 빌딩으로 텔레포트).
 """
 
 import os
@@ -32,10 +34,23 @@ def _clean_env() -> dict:
             if entry and 'rviz_ogre_vendor' not in entry]
     env['PATH'] = os.pathsep.join(path)
 
-    # Gazebo가 자체 런타임을 쓰도록 Qt / DYLD override는 비운다.
-    for key in ['DYLD_LIBRARY_PATH', 'DYLD_FALLBACK_LIBRARY_PATH', 'DYLD_FRAMEWORK_PATH',
-                'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH']:
+    # Qt override는 Gazebo 자체 런타임을 쓰게 비운다.
+    for key in ['QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH']:
         env.pop(key, None)
+
+    # OGRE-Next plugins have @rpath = @loader_path/../ which correctly
+    # resolves to $CONDA_PREFIX/lib/.  Do NOT add that directory to
+    # DYLD_LIBRARY_PATH — it also contains OGRE 1.x (libOgreMain) and
+    # the resulting ObjC symbol clash (OgreConfigWindowDelegate) crashes
+    # the sensor rendering pipeline.  Only set DYLD_LIBRARY_PATH to the
+    # OGRE-Next plugin directory itself (for any sub-dependencies).
+    conda_prefix = os.environ.get('CONDA_PREFIX', '')
+    if conda_prefix:
+        existing = env.get('DYLD_LIBRARY_PATH', '')
+        # Strip any conda lib paths that contain OGRE 1.x from existing.
+        filtered = [p for p in existing.split(os.pathsep)
+                    if p and '/lib/OGRE' not in p.replace('/OGRE-Next', '')]
+        env['DYLD_LIBRARY_PATH'] = os.pathsep.join(filtered) if filtered else ''
     return env
 
 
@@ -68,17 +83,39 @@ def _launch(context, *_args, **_kwargs):
     headless = LaunchConfiguration('headless').perform(context).lower() == 'true'
     foxglove = LaunchConfiguration('use_foxglove').perform(context).lower() == 'true'
     use_da3  = LaunchConfiguration('use_da3').perform(context).lower() == 'true'
-    world    = os.path.join(pkg, 'worlds', 'sim.sdf')
+    world    = os.path.join(pkg, 'worlds', 'combined.world')
+    use_elevator = LaunchConfiguration('use_elevator').perform(context).lower() == 'true'
     env      = _clean_env()
+    # Prevent OpenBLAS (used by DART physics) from spawning threads on all
+    # cores — the resulting context-switch overhead tanks RTF on macOS.
+    env['OPENBLAS_NUM_THREADS'] = '1'
     partition = f'gz_nav_sim_{os.getpid()}'
     workspace_root = os.path.abspath(os.path.join(pkg, '..', '..', '..', '..'))
     da3_repo = os.path.join(workspace_root, 'src', 'Depth-Anything-3')
     resource_paths = os.pathsep.join([
         os.path.join(pkg, 'worlds'),
         os.path.join(pkg, 'models'),
+        os.path.join(pkg, 'models', 'office'),
+        os.path.join(pkg, 'models', 'office', 'media'),
+        os.path.join(pkg, 'models', 'hospital'),
     ])
     env['GZ_PARTITION'] = partition
     env['IGN_PARTITION'] = partition
+    # Prevent OGRE 1.x engine plugin from loading alongside OGRE-Next.
+    # Both libraries define the ObjC class OgreConfigWindowDelegate;
+    # the symbol clash crashes the sensor rendering pipeline.
+    # Permanently rename the ogre 1.x engine plugins to .disabled so
+    # gz-rendering only discovers ogre2.  This is safe — gz-sim only
+    # uses ogre2.  Undo with: rename 's/.disabled$//' lib/gz-rendering-8/engine-plugins/*.disabled
+    if is_macos:
+        ep_dir = os.path.join(
+            os.environ.get('CONDA_PREFIX', ''), 'lib',
+            'gz-rendering-8', 'engine-plugins')
+        for fn in os.listdir(ep_dir):
+            if ('ogre' in fn.lower() and 'ogre2' not in fn.lower()
+                    and not fn.endswith('.disabled')):
+                os.rename(os.path.join(ep_dir, fn),
+                          os.path.join(ep_dir, fn + '.disabled'))
     env['GZ_SIM_RESOURCE_PATH'] = _join_resource_paths(
         resource_paths,
         env.get('GZ_SIM_RESOURCE_PATH', ''),
@@ -88,27 +125,42 @@ def _launch(context, *_args, **_kwargs):
         env.get('IGN_GAZEBO_RESOURCE_PATH', ''),
     )
 
-    # ── Gazebo ─────────────��──────────────────────────────────────────────────
+    # ── Gazebo ──────────────────────────────────────────────────────────────
+    # Launch gz via conda's ruby directly (bypass /usr/bin/env which
+    # strips DYLD_* due to macOS SIP).  We intentionally do NOT set
+    # DYLD_LIBRARY_PATH — the @rpath entries in OGRE-Next plugins are
+    # correct, and adding conda/lib to DYLD causes libOgreMain (1.x)
+    # to collide with libOgreNextMain (symbol clash crashes rendering).
+    ruby = os.path.join(os.environ.get('CONDA_PREFIX', ''), 'bin', 'ruby')
+
+    def _wrap(cmd_args):
+        if not is_macos:
+            return cmd_args
+        return ['bash', '-c', f'exec {ruby} {gz} "$@"',
+                'gz', *cmd_args[1:]]
+
     if is_macos and not headless:
-        # macOS: server(OpenGL) + GUI(Metal) 분리
         gz_procs = [
-            ExecuteProcess(cmd=[gz, 'sim', '-s', '-r', '-v', '4',
+            ExecuteProcess(cmd=_wrap([gz, 'sim', '-s', '-r', '-v', '4',
+                                '--levels',
                                 '--render-engine-server', 'ogre2',
                                 '--render-engine-server-api-backend', 'opengl',
-                                world], env=env, output='screen'),
-            ExecuteProcess(cmd=[gz, 'sim', '-g', '-v', '4',
+                                world]), env=env, output='screen'),
+            ExecuteProcess(cmd=_wrap([gz, 'sim', '-g', '-v', '4',
                                 '--render-engine-gui', 'ogre2',
-                                '--render-engine-gui-api-backend', 'metal'],
+                                '--render-engine-gui-api-backend', 'metal']),
                            env=env, output='screen'),
         ]
     elif headless:
         extra = ['-s', '--render-engine-server', 'ogre2',
                  '--render-engine-server-api-backend', 'opengl'] if is_macos \
                 else ['-s', '--headless-rendering']
-        gz_procs = [ExecuteProcess(cmd=[gz, 'sim', '-r', '-v', '4', *extra, world],
+        gz_procs = [ExecuteProcess(cmd=_wrap([gz, 'sim', '-r', '-v', '4', '--levels',
+                                             *extra, world]),
                                    env=env, output='screen')]
     else:
-        gz_procs = [ExecuteProcess(cmd=[gz, 'sim', '-r', '-v', '4', world],
+        gz_procs = [ExecuteProcess(cmd=_wrap([gz, 'sim', '-r', '-v', '4', '--levels',
+                                             world]),
                                    env=env, output='screen')]
 
     # ── Bridge ─────────��──────────────────────────────────────────────────────
@@ -124,6 +176,7 @@ def _launch(context, *_args, **_kwargs):
             '/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
             '/front_camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
             '/front_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
+            '/overhead/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
         ],
         output='screen',
     )
@@ -145,7 +198,7 @@ def _launch(context, *_args, **_kwargs):
         executable='static_transform_publisher',
         name='front_camera_frame_tf',
         arguments=[
-            '--x', '0.16', '--y', '0', '--z', '0.08',
+        '--x', '0.16', '--y', '0', '--z', '0.5',
             '--roll', '0', '--pitch', '0', '--yaw', '0',
             '--frame-id', 'base_link', '--child-frame-id', 'front_camera_frame',
         ],
@@ -248,6 +301,14 @@ def _launch(context, *_args, **_kwargs):
         parameters=[da3_params, da3_overrides],
     )
 
+    elevator_node = Node(
+        package='gz_nav_sim',
+        executable='elevator_teleport.py',
+        name='elevator_teleport',
+        output='screen',
+        parameters=[{'use_sim_time': True, 'world': 'combined', 'robot_model': 'robot'}],
+    )
+
     return [
         SetEnvironmentVariable('GZ_PARTITION', partition),
         SetEnvironmentVariable('IGN_PARTITION', partition),
@@ -263,6 +324,7 @@ def _launch(context, *_args, **_kwargs):
         nav2_container,
         navigation,
         *([] if not use_da3 else [da3_node]),
+        *([] if not use_elevator else [elevator_node]),
         *([] if not foxglove else [Node(
             package='foxglove_bridge', executable='foxglove_bridge',
             parameters=[{'port': 8765, 'use_sim_time': True}], output='screen',
@@ -275,6 +337,7 @@ def generate_launch_description():
         DeclareLaunchArgument('headless',    default_value='false',  description='GUI 없이 실행'),
         DeclareLaunchArgument('use_foxglove',default_value='true',  description='Foxglove 브리지'),
         DeclareLaunchArgument('use_da3', default_value='false', description='DA3 RGB depth wrapper'),
+        DeclareLaunchArgument('use_elevator', default_value='true', description='호텔 엘리베이터 텔레포트 노드'),
         DeclareLaunchArgument('da3_model_id', default_value='',
                               description='Optional DA3 model override; empty uses YAML'),
         DeclareLaunchArgument('da3_process_res', default_value='',
