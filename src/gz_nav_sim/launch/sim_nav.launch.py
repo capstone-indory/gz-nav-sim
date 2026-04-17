@@ -1,20 +1,22 @@
-"""Gazebo + Nav2 + SLAM Toolbox standalone simulation.
+"""Gazebo Classic 11 + Nav2 + SLAM Toolbox simulation (ROS 2 Humble).
 
   ros2 launch gz_nav_sim sim_nav.launch.py
   ros2 launch gz_nav_sim sim_nav.launch.py headless:=true use_foxglove:=true
 
 SLAM이 자동으로 map→odom TF와 /map 토픽을 제공합니다. 초기 포즈 별도 설정 불필요.
 월드: combined.world — office (origin) + hospital (+150m on X) 머지 맵.
-로봇 스폰 위치: office 내부 (0, -3), 엘리베이터 방향(+Y) 바라봄.
+로봇 스폰 위치: office 내부 (-3, 0), 엘리베이터 방향 바라봄.
 엘리베이터 이동: /elevator/call 에 std_msgs/Empty publish (현재 존에 따라 반대 빌딩으로 텔레포트).
 """
 
 import os
-import platform
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, ExecuteProcess, IncludeLaunchDescription, LogInfo, OpaqueFunction, RegisterEventHandler, SetEnvironmentVariable, TimerAction
+from launch.actions import (DeclareLaunchArgument, EmitEvent,
+                            ExecuteProcess, IncludeLaunchDescription,
+                            LogInfo, OpaqueFunction, RegisterEventHandler,
+                            SetEnvironmentVariable, TimerAction)
 from launch.events import matches_action
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -24,46 +26,12 @@ from launch_ros.events.lifecycle import ChangeState
 from lifecycle_msgs.msg import Transition
 
 
-# ── macOS: conda Gazebo만 쓰도록 환경 정리 ───────────────────────────────────
-def _clean_env() -> dict:
-    env = os.environ.copy()
-    if platform.system() != 'Darwin':
-        return env
-
-    path = [entry for entry in env.get('PATH', '').split(os.pathsep)
-            if entry and 'rviz_ogre_vendor' not in entry]
-    env['PATH'] = os.pathsep.join(path)
-
-    # Qt override는 Gazebo 자체 런타임을 쓰게 비운다.
-    for key in ['QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH']:
-        env.pop(key, None)
-
-    # OGRE-Next plugins have @rpath = @loader_path/../ which correctly
-    # resolves to $CONDA_PREFIX/lib/.  Do NOT add that directory to
-    # DYLD_LIBRARY_PATH — it also contains OGRE 1.x (libOgreMain) and
-    # the resulting ObjC symbol clash (OgreConfigWindowDelegate) crashes
-    # the sensor rendering pipeline.  Only set DYLD_LIBRARY_PATH to the
-    # OGRE-Next plugin directory itself (for any sub-dependencies).
-    conda_prefix = os.environ.get('CONDA_PREFIX', '')
-    if conda_prefix:
-        existing = env.get('DYLD_LIBRARY_PATH', '')
-        # Strip any conda lib paths that contain OGRE 1.x from existing.
-        filtered = [p for p in existing.split(os.pathsep)
-                    if p and '/lib/OGRE' not in p.replace('/OGRE-Next', '')]
-        env['DYLD_LIBRARY_PATH'] = os.pathsep.join(filtered) if filtered else ''
-    return env
-
-
-def _gz_bin() -> str:
-    return os.path.join(os.environ['CONDA_PREFIX'], 'bin', 'gz')
-
-
-def _join_resource_paths(*path_groups: str) -> str:
-    paths = []
-    for group in path_groups:
-        for path in group.split(os.pathsep):
-            if path and path not in paths:
-                paths.append(path)
+def _join_paths(*groups: str) -> str:
+    paths: list[str] = []
+    for group in groups:
+        for p in (group or '').split(os.pathsep):
+            if p and p not in paths:
+                paths.append(p)
     return os.pathsep.join(paths)
 
 
@@ -74,113 +42,71 @@ def _optional_launch_arg(context, name: str, cast=None):
     return cast(value) if cast is not None else value
 
 
-# ── Launch ────────────��─────────────────────────��──────────────────────────────
 def _launch(context, *_args, **_kwargs):
     pkg      = get_package_share_directory('gz_nav_sim')
     nav2_pkg = get_package_share_directory('nav2_bringup')
-    gz       = _gz_bin()
-    is_macos = platform.system() == 'Darwin'
+    gazebo_ros_pkg = get_package_share_directory('gazebo_ros')
+
     headless = LaunchConfiguration('headless').perform(context).lower() == 'true'
     foxglove = LaunchConfiguration('use_foxglove').perform(context).lower() == 'true'
     use_da3  = LaunchConfiguration('use_da3').perform(context).lower() == 'true'
-    world    = os.path.join(pkg, 'worlds', 'combined.world')
     use_elevator = LaunchConfiguration('use_elevator').perform(context).lower() == 'true'
-    env      = _clean_env()
-    # Prevent OpenBLAS (used by DART physics) from spawning threads on all
-    # cores — the resulting context-switch overhead tanks RTF on macOS.
-    env['OPENBLAS_NUM_THREADS'] = '1'
-    partition = f'gz_nav_sim_{os.getpid()}'
+    world    = os.path.join(pkg, 'worlds', 'combined.world')
+
     workspace_root = os.path.abspath(os.path.join(pkg, '..', '..', '..', '..'))
     da3_repo = os.path.join(workspace_root, 'src', 'Depth-Anything-3')
-    resource_paths = os.pathsep.join([
-        os.path.join(pkg, 'worlds'),
+
+    # ── Gazebo model / resource paths ────────────────────────────────────────
+    # Include Gazebo Classic 11 system paths explicitly — without them the
+    # shader libs under /usr/share/gazebo-11 can't be found and camera
+    # sensors fail to render ("Unable to create CameraSensor").  Normally
+    # `source /usr/share/gazebo/setup.bash` does this; we inline it here so
+    # the launch works regardless of the user's shell setup.
+    gazebo_system_paths = [
+        '/usr/share/gazebo-11',
+        '/usr/share/gazebo',
+    ]
+    model_paths = _join_paths(
         os.path.join(pkg, 'models'),
         os.path.join(pkg, 'models', 'office'),
-        os.path.join(pkg, 'models', 'office', 'media'),
         os.path.join(pkg, 'models', 'hospital'),
-    ])
-    env['GZ_PARTITION'] = partition
-    env['IGN_PARTITION'] = partition
-    # Prevent OGRE 1.x engine plugin from loading alongside OGRE-Next.
-    # Both libraries define the ObjC class OgreConfigWindowDelegate;
-    # the symbol clash crashes the sensor rendering pipeline.
-    # Permanently rename the ogre 1.x engine plugins to .disabled so
-    # gz-rendering only discovers ogre2.  This is safe — gz-sim only
-    # uses ogre2.  Undo with: rename 's/.disabled$//' lib/gz-rendering-8/engine-plugins/*.disabled
-    if is_macos:
-        ep_dir = os.path.join(
-            os.environ.get('CONDA_PREFIX', ''), 'lib',
-            'gz-rendering-8', 'engine-plugins')
-        for fn in os.listdir(ep_dir):
-            if ('ogre' in fn.lower() and 'ogre2' not in fn.lower()
-                    and not fn.endswith('.disabled')):
-                os.rename(os.path.join(ep_dir, fn),
-                          os.path.join(ep_dir, fn + '.disabled'))
-    env['GZ_SIM_RESOURCE_PATH'] = _join_resource_paths(
-        resource_paths,
-        env.get('GZ_SIM_RESOURCE_PATH', ''),
+        '/usr/share/gazebo-11/models',
+        '/usr/share/gazebo/models',
+        os.environ.get('GAZEBO_MODEL_PATH', ''),
     )
-    env['IGN_GAZEBO_RESOURCE_PATH'] = _join_resource_paths(
-        resource_paths,
-        env.get('IGN_GAZEBO_RESOURCE_PATH', ''),
+    resource_paths = _join_paths(
+        pkg,
+        os.path.join(pkg, 'models', 'office'),
+        *gazebo_system_paths,
+        os.environ.get('GAZEBO_RESOURCE_PATH', ''),
+    )
+    plugin_paths = _join_paths(
+        '/opt/ros/humble/lib',
+        '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins',
+        os.environ.get('GAZEBO_PLUGIN_PATH', ''),
+    )
+    media_paths = _join_paths(
+        '/usr/share/gazebo-11/media',
+        os.environ.get('GAZEBO_MEDIA_PATH', ''),
     )
 
-    # ── Gazebo ──────────────────────────────────────────────────────────────
-    # Launch gz via conda's ruby directly (bypass /usr/bin/env which
-    # strips DYLD_* due to macOS SIP).  We intentionally do NOT set
-    # DYLD_LIBRARY_PATH — the @rpath entries in OGRE-Next plugins are
-    # correct, and adding conda/lib to DYLD causes libOgreMain (1.x)
-    # to collide with libOgreNextMain (symbol clash crashes rendering).
-    ruby = os.path.join(os.environ.get('CONDA_PREFIX', ''), 'bin', 'ruby')
-
-    def _wrap(cmd_args):
-        if not is_macos:
-            return cmd_args
-        return ['bash', '-c', f'exec {ruby} {gz} "$@"',
-                'gz', *cmd_args[1:]]
-
-    if is_macos and not headless:
-        gz_procs = [
-            ExecuteProcess(cmd=_wrap([gz, 'sim', '-s', '-r', '-v', '4',
-                                '--levels',
-                                '--render-engine-server', 'ogre2',
-                                '--render-engine-server-api-backend', 'opengl',
-                                world]), env=env, output='screen'),
-            ExecuteProcess(cmd=_wrap([gz, 'sim', '-g', '-v', '4',
-                                '--render-engine-gui', 'ogre2',
-                                '--render-engine-gui-api-backend', 'metal']),
-                           env=env, output='screen'),
-        ]
-    elif headless:
-        extra = ['-s', '--render-engine-server', 'ogre2',
-                 '--render-engine-server-api-backend', 'opengl'] if is_macos \
-                else ['-s', '--headless-rendering']
-        gz_procs = [ExecuteProcess(cmd=_wrap([gz, 'sim', '-r', '-v', '4', '--levels',
-                                             *extra, world]),
-                                   env=env, output='screen')]
-    else:
-        gz_procs = [ExecuteProcess(cmd=_wrap([gz, 'sim', '-r', '-v', '4', '--levels',
-                                             world]),
-                                   env=env, output='screen')]
-
-    # ── Bridge ─────────��──────────────────────────────────────────────────────
-    # diff_drive가 /odom, /tf 발행 → bridge로 ROS에 전달
-    # /clock은 Gazebo에서 직접 브리지
-    bridge = Node(
-        package='ros_gz_bridge', executable='parameter_bridge', name='bridge',
-        arguments=[
-            '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
-            '/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
-            '/odom@nav_msgs/msg/Odometry[gz.msgs.Odometry',
-            '/tf@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V',
-            '/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
-            '/front_camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
-            '/front_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
-            '/overhead/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
-        ],
-        output='screen',
+    # ── Gazebo Classic 11 (gzserver + gzclient) ──────────────────────────────
+    gzserver = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(gazebo_ros_pkg, 'launch', 'gzserver.launch.py')),
+        launch_arguments={
+            'world': world,
+            'verbose': 'true',
+            'pause': 'false',
+        }.items(),
+    )
+    gzclient = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(gazebo_ros_pkg, 'launch', 'gzclient.launch.py')),
+        launch_arguments={'verbose': 'true'}.items(),
     )
 
+    # ── Static TFs for camera frames ─────────────────────────────────────────
     base_footprint_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
@@ -196,11 +122,11 @@ def _launch(context, *_args, **_kwargs):
     front_camera_frame_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
-        name='front_camera_frame_tf',
+        name='camera_frame_tf',
         arguments=[
-        '--x', '0.16', '--y', '0', '--z', '0.5',
+            '--x', '0.16', '--y', '0', '--z', '0.5',
             '--roll', '0', '--pitch', '0', '--yaw', '0',
-            '--frame-id', 'base_link', '--child-frame-id', 'front_camera_frame',
+            '--frame-id', 'base_link', '--child-frame-id', 'camera_frame',
         ],
         output='screen',
     )
@@ -208,16 +134,16 @@ def _launch(context, *_args, **_kwargs):
     front_camera_optical_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
-        name='front_camera_optical_tf',
+        name='camera_optical_tf',
         arguments=[
             '--x', '0', '--y', '0', '--z', '0',
             '--roll', '-1.57079632679', '--pitch', '0', '--yaw', '-1.57079632679',
-            '--frame-id', 'front_camera_frame', '--child-frame-id', 'front_camera_optical_frame',
+            '--frame-id', 'camera_frame', '--child-frame-id', 'camera_optical_frame',
         ],
         output='screen',
     )
 
-    # ── SLAM Toolbox (online async — fresh map every run) ─────────────────────
+    # ── SLAM Toolbox (online async — fresh map every run) ───────────────────
     slam_params = os.path.join(pkg, 'config', 'slam_params.yaml')
     da3_params = os.path.join(pkg, 'config', 'da3_params.yaml')
 
@@ -233,7 +159,7 @@ def _launch(context, *_args, **_kwargs):
         }],
     )
     slam_configure = TimerAction(
-        period=2.0,
+        period=3.0,
         actions=[EmitEvent(event=ChangeState(
             lifecycle_node_matcher=matches_action(slam),
             transition_id=Transition.TRANSITION_CONFIGURE,
@@ -254,7 +180,7 @@ def _launch(context, *_args, **_kwargs):
         )
     )
 
-    # ── Nav2 (navigation only — map comes from SLAM) ──────────────────────────
+    # ── Nav2 (navigation only — map comes from SLAM) ────────────────────────
     nav2_params = os.path.join(pkg, 'config', 'nav2_params.yaml')
     if not os.path.exists(nav2_params):
         nav2_params = os.path.join(nav2_pkg, 'params', 'nav2_params.yaml')
@@ -269,11 +195,15 @@ def _launch(context, *_args, **_kwargs):
     )
 
     navigation = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(nav2_pkg, 'launch', 'navigation_launch.py')),
-        launch_arguments={'use_sim_time': 'true', 'autostart': 'true',
-                          'params_file': nav2_params,
-                          'use_composition': 'True',
-                          'container_name': 'nav2_container'}.items(),
+        PythonLaunchDescriptionSource(
+            os.path.join(nav2_pkg, 'launch', 'navigation_launch.py')),
+        launch_arguments={
+            'use_sim_time': 'true',
+            'autostart': 'true',
+            'params_file': nav2_params,
+            'use_composition': 'True',
+            'container_name': 'nav2_container',
+        }.items(),
     )
 
     da3_overrides = {
@@ -306,15 +236,21 @@ def _launch(context, *_args, **_kwargs):
         executable='elevator_teleport.py',
         name='elevator_teleport',
         output='screen',
-        parameters=[{'use_sim_time': True, 'world': 'combined', 'robot_model': 'robot'}],
+        parameters=[{'use_sim_time': True, 'robot_model': 'robot'}],
     )
 
-    return [
-        SetEnvironmentVariable('GZ_PARTITION', partition),
-        SetEnvironmentVariable('IGN_PARTITION', partition),
+    launch_actions = [
+        SetEnvironmentVariable('GAZEBO_MODEL_PATH', model_paths),
+        SetEnvironmentVariable('GAZEBO_RESOURCE_PATH', resource_paths),
+        SetEnvironmentVariable('GAZEBO_PLUGIN_PATH', plugin_paths),
+        SetEnvironmentVariable('GAZEBO_MEDIA_PATH', media_paths),
         SetEnvironmentVariable('FASTDDS_BUILTIN_TRANSPORTS', 'UDPv4'),
-        *gz_procs,
-        bridge,
+        SetEnvironmentVariable('DISPLAY', ':99'),
+        gzserver,
+    ]
+    if not headless:
+        launch_actions.append(gzclient)
+    launch_actions.extend([
         base_footprint_tf,
         front_camera_frame_tf,
         front_camera_optical_tf,
@@ -323,21 +259,32 @@ def _launch(context, *_args, **_kwargs):
         slam_activate,
         nav2_container,
         navigation,
-        *([] if not use_da3 else [da3_node]),
-        *([] if not use_elevator else [elevator_node]),
-        *([] if not foxglove else [Node(
+    ])
+    if use_da3:
+        launch_actions.append(da3_node)
+    if use_elevator:
+        launch_actions.append(elevator_node)
+    if foxglove:
+        launch_actions.append(Node(
             package='foxglove_bridge', executable='foxglove_bridge',
-            parameters=[{'port': 8765, 'use_sim_time': True}], output='screen',
-        )]),
-    ]
+            parameters=[{
+                'port': 8765,
+                'use_sim_time': True,
+                'max_qos_depth': 5,
+                'send_buffer_limit': 10_000_000,
+                'use_compression': True,
+            }],
+            output='screen',
+        ))
+    return launch_actions
 
 
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('headless',    default_value='false',  description='GUI 없이 실행'),
         DeclareLaunchArgument('use_foxglove',default_value='true',  description='Foxglove 브리지'),
-        DeclareLaunchArgument('use_da3', default_value='false', description='DA3 RGB depth wrapper'),
-        DeclareLaunchArgument('use_elevator', default_value='true', description='호텔 엘리베이터 텔레포트 노드'),
+        DeclareLaunchArgument('use_da3', default_value='true', description='DA3 RGB depth wrapper'),
+        DeclareLaunchArgument('use_elevator', default_value='true', description='엘리베이터 텔레포트 노드'),
         DeclareLaunchArgument('da3_model_id', default_value='',
                               description='Optional DA3 model override; empty uses YAML'),
         DeclareLaunchArgument('da3_process_res', default_value='',

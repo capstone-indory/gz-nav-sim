@@ -1,14 +1,14 @@
 da3_depth_node:
   ros__parameters:
-    image_topic: /front_camera/image_raw
-    camera_info_topic: /front_camera/camera_info
-    depth_topic: /front_camera/depth/image_raw
-    point_cloud_topic: /front_camera/depth/points
+    image_topic: /camera/image_raw
+    camera_info_topic: /camera/camera_info
+    depth_topic: /camera/depth/image_raw
+    point_cloud_topic: /camera/depth/points
 
     # 입력 이미지는 optical frame 기준으로 받고,
-    # DA3가 만든 3D 좌표는 로봇 카메라 링크(front_camera_frame) 기준으로 보냄
-    camera_frame: front_camera_optical_frame
-    point_cloud_frame: front_camera_frame
+    # DA3가 만든 3D 좌표는 로봇 카메라 링크(camera_frame) 기준으로 보냄
+    camera_frame: camera_optical_frame
+    point_cloud_frame: camera_frame
 
     # auto: cuda -> mps -> cpu 순으로 선택
     device: auto

@@ -1,5 +1,5 @@
 <?xml version="1.0" ?>
-<sdf version="1.9">
+<sdf version="1.6">
 
   <model name="robot">
 
@@ -36,13 +36,12 @@
       </visual>
 
       <!-- 2D LiDAR — SLAMTEC RPLIDAR C1 spec -->
-      <sensor name="lidar" type="gpu_lidar">
+      <sensor name="lidar" type="ray">
         <pose>0 0 0.1 0 0 0</pose>
-        <topic>/scan</topic>
-        <gz_frame_id>base_link</gz_frame_id>
         <update_rate>10</update_rate>
         <always_on>true</always_on>
-        <lidar>
+        <visualize>false</visualize>
+        <ray>
           <scan>
             <horizontal>
               <samples>500</samples>
@@ -61,28 +60,33 @@
             <mean>0.0</mean>
             <stddev>0.03</stddev>
           </noise>
-        </lidar>
+        </ray>
+        <plugin name="lidar_ros" filename="libgazebo_ros_ray_sensor.so">
+          <ros>
+            <namespace>/</namespace>
+            <remapping>~/out:=scan</remapping>
+          </ros>
+          <output_type>sensor_msgs/LaserScan</output_type>
+          <frame_name>base_link</frame_name>
+        </plugin>
       </sensor>
 
       <!-- 전방 RGB 카메라 -->
-      <sensor name="front_camera" type="camera">
+      <sensor name="camera" type="camera">
         <pose>0.16 0 0.50 0 0 0</pose>
-        <topic>/front_camera/image_raw</topic>
-        <gz_frame_id>front_camera_optical_frame</gz_frame_id>
         <update_rate>10</update_rate>
         <always_on>true</always_on>
+        <visualize>false</visualize>
         <camera>
-          <camera_info_topic>/front_camera/camera_info</camera_info_topic>
-          <optical_frame_id>front_camera_optical_frame</optical_frame_id>
           <horizontal_fov>1.287</horizontal_fov>
           <image>
             <width>640</width>
             <height>480</height>
-            <format>RGB_INT8</format>
+            <format>R8G8B8</format>
           </image>
           <clip>
             <near>0.05</near>
-            <far>15.0</far>
+            <far>30.0</far>
           </clip>
           <noise>
             <type>gaussian</type>
@@ -90,6 +94,12 @@
             <stddev>0.005</stddev>
           </noise>
         </camera>
+        <plugin name="camera_ros" filename="libgazebo_ros_camera.so">
+          <ros>
+            <namespace>/</namespace>
+          </ros>
+          <frame_name>camera_optical_frame</frame_name>
+        </plugin>
       </sensor>
     </link>
 
@@ -197,7 +207,7 @@
       </axis>
     </joint>
 
-    <!-- 앞 보조 캐스터 (rigid body, visual only caster wheel) -->
+    <!-- 앞 보조 캐스터 -->
     <link name="front_caster">
       <pose>0.16 0 -0.08 -1.5708 0 0</pose>
       <inertial>
@@ -222,7 +232,6 @@
           </friction>
         </surface>
       </collision>
-      <!-- Cylinder visual for a more realistic castor-wheel appearance -->
       <visual name="wheel_vis">
         <geometry>
           <cylinder>
@@ -257,7 +266,7 @@
       <child>front_caster</child>
     </joint>
 
-    <!-- 뒤 보조 캐스터 (rigid body, visual only caster wheel) -->
+    <!-- 뒤 보조 캐스터 -->
     <link name="rear_caster">
       <pose>-0.16 0 -0.08 -1.5708 0 0</pose>
       <inertial>
@@ -282,7 +291,6 @@
           </friction>
         </surface>
       </collision>
-      <!-- Cylinder visual for a more realistic castor-wheel appearance -->
       <visual name="wheel_vis">
         <geometry>
           <cylinder>
@@ -317,18 +325,42 @@
       <child>rear_caster</child>
     </joint>
 
-    <!-- Diff Drive -->
-    <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+    <!-- Diff Drive (Gazebo Classic 11 + ROS 2) -->
+    <plugin name="diff_drive" filename="libgazebo_ros_diff_drive.so">
+      <ros>
+        <namespace>/</namespace>
+      </ros>
+
+      <update_rate>50</update_rate>
+
       <left_joint>left_wheel_joint</left_joint>
       <right_joint>right_wheel_joint</right_joint>
+
       <wheel_separation>0.38</wheel_separation>
-      <wheel_radius>0.08</wheel_radius>
-      <odom_publish_frequency>50</odom_publish_frequency>
-      <topic>/cmd_vel</topic>
-      <odom_topic>/odom</odom_topic>
-      <tf_topic>/tf</tf_topic>
-      <frame_id>odom</frame_id>
-      <child_frame_id>base_link</child_frame_id>
+      <wheel_diameter>0.16</wheel_diameter>
+
+      <max_wheel_torque>20</max_wheel_torque>
+      <max_wheel_acceleration>5.0</max_wheel_acceleration>
+
+      <command_topic>cmd_vel</command_topic>
+      <publish_odom>true</publish_odom>
+      <publish_odom_tf>true</publish_odom_tf>
+      <publish_wheel_tf>false</publish_wheel_tf>
+
+      <odometry_topic>odom</odometry_topic>
+      <odometry_frame>odom</odometry_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+    </plugin>
+
+    <!-- Joint state publisher (for wheel TF) -->
+    <plugin name="joint_state_publisher" filename="libgazebo_ros_joint_state_publisher.so">
+      <ros>
+        <namespace>/</namespace>
+        <remapping>~/out:=joint_states</remapping>
+      </ros>
+      <update_rate>30</update_rate>
+      <joint_name>left_wheel_joint</joint_name>
+      <joint_name>right_wheel_joint</joint_name>
     </plugin>
   </model>
 </sdf>
