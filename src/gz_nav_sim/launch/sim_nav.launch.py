@@ -50,11 +50,14 @@ def _launch(context, *_args, **_kwargs):
     headless = LaunchConfiguration('headless').perform(context).lower() == 'true'
     foxglove = LaunchConfiguration('use_foxglove').perform(context).lower() == 'true'
     use_da3  = LaunchConfiguration('use_da3').perform(context).lower() == 'true'
+    use_nvblox = LaunchConfiguration('use_nvblox').perform(context).lower() == 'true'
+    use_vggt_slam = LaunchConfiguration('use_vggt_slam').perform(context).lower() == 'true'
     use_elevator = LaunchConfiguration('use_elevator').perform(context).lower() == 'true'
     world    = os.path.join(pkg, 'worlds', 'combined.world')
 
     workspace_root = os.path.abspath(os.path.join(pkg, '..', '..', '..', '..'))
     da3_repo = os.path.join(workspace_root, 'src', 'Depth-Anything-3')
+    vggt_slam_repo = os.path.join(workspace_root, 'src', 'VGGT-SLAM')
 
     # ── Gazebo model / resource paths ────────────────────────────────────────
     # Include Gazebo Classic 11 system paths explicitly — without them the
@@ -231,12 +234,67 @@ def _launch(context, *_args, **_kwargs):
         parameters=[da3_params, da3_overrides],
     )
 
+    # ── VGGT-SLAM bridge (Python 3.10 side) ─────────────────────────────────
+    # Heavy SLAM solver runs in a separate Python 3.11 venv process,
+    # spawned by the bridge via subprocess. See vggt_slam_server.py.
+    vggt_slam_params = os.path.join(pkg, 'config', 'vggt_slam_params.yaml')
+    vggt_slam_overrides = {
+        'use_sim_time': True,
+        'server_repo': vggt_slam_repo,
+    }
+    for key, cast in (
+        ('server_python', str),
+        ('server_script', str),
+        ('submap_size', int),
+        ('min_disparity', float),
+        ('pointcloud_stride', int),
+        ('image_topic', str),
+    ):
+        value = _optional_launch_arg(context, f'vggt_slam_{key}', cast)
+        if value is not None:
+            vggt_slam_overrides[key] = value
+
+    vggt_slam_node = Node(
+        package='gz_nav_sim',
+        executable='vggt_slam_bridge.py',
+        name='vggt_slam_bridge',
+        output='screen',
+        parameters=[vggt_slam_params, vggt_slam_overrides],
+    )
+
     elevator_node = Node(
         package='gz_nav_sim',
         executable='elevator_teleport.py',
         name='elevator_teleport',
         output='screen',
         parameters=[{'use_sim_time': True, 'robot_model': 'robot'}],
+    )
+
+    nvblox_include = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg, 'launch', 'nvblox.launch.py')),
+        launch_arguments={
+            'depth_topic': '/camera/depth/image_raw',
+            'depth_info_topic': '/camera/depth/camera_info',
+            'color_topic': '/camera/image_raw',
+            'color_info_topic': '/camera/camera_info',
+        }.items(),
+    )
+
+    # nvblox mesh → glTF(Draco) republisher — Foxglove SceneUpdate로 30~50배 압축
+    nvblox_gltf_node = Node(
+        package='gz_nav_sim',
+        executable='nvblox_mesh_to_gltf.py',
+        name='nvblox_mesh_to_gltf',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'input_topic': '/nvblox_node/mesh',
+            'output_topic': '/nvblox_node/scene',
+            # nvblox는 메모리 위해 map_clearing_radius_m 안쪽만 유지하지만
+            # Foxglove에선 누적된 mesh 영구 보관 (지나간 곳도 계속 보임)
+            'accumulate_only': True,
+        }],
     )
 
     launch_actions = [
@@ -262,6 +320,14 @@ def _launch(context, *_args, **_kwargs):
     ])
     if use_da3:
         launch_actions.append(da3_node)
+    if use_nvblox:
+        # DA3 depth가 뜬 뒤에 nvblox를 띄워야 첫 프레임 누락이 없음
+        launch_actions.append(TimerAction(period=8.0, actions=[nvblox_include]))
+        # mesh→gltf republisher는 nvblox /mesh 토픽 뜬 뒤
+        launch_actions.append(TimerAction(period=10.0, actions=[nvblox_gltf_node]))
+    if use_vggt_slam:
+        # VGGT-SLAM은 서버 프로세스를 spawn해야 해서 가제보 sensor가 뜬 후에 시작
+        launch_actions.append(TimerAction(period=5.0, actions=[vggt_slam_node]))
     if use_elevator:
         launch_actions.append(elevator_node)
     if foxglove:
@@ -284,6 +350,8 @@ def generate_launch_description():
         DeclareLaunchArgument('headless',    default_value='false',  description='GUI 없이 실행'),
         DeclareLaunchArgument('use_foxglove',default_value='true',  description='Foxglove 브리지'),
         DeclareLaunchArgument('use_da3', default_value='true', description='DA3 RGB depth wrapper'),
+        DeclareLaunchArgument('use_nvblox', default_value='false', description='nvblox 3D mapping 노드 (isaac_ros_nvblox 필요)'),
+        DeclareLaunchArgument('use_vggt_slam', default_value='false', description='VGGT-SLAM 브리지 (Python 3.11 venv 서버 spawn)'),
         DeclareLaunchArgument('use_elevator', default_value='true', description='엘리베이터 텔레포트 노드'),
         DeclareLaunchArgument('da3_model_id', default_value='',
                               description='Optional DA3 model override; empty uses YAML'),
@@ -299,5 +367,17 @@ def generate_launch_description():
                               description='Optional point cloud downsample stride override'),
         DeclareLaunchArgument('da3_point_cloud_frame', default_value='',
                               description='Optional target TF frame override for published point cloud'),
+        DeclareLaunchArgument('vggt_slam_server_python', default_value='',
+                              description='Python 3.11 interpreter for VGGT-SLAM server (empty uses YAML)'),
+        DeclareLaunchArgument('vggt_slam_server_script', default_value='',
+                              description='Path to vggt_slam_server.py (empty uses YAML)'),
+        DeclareLaunchArgument('vggt_slam_submap_size', default_value='',
+                              description='Frames per submap override'),
+        DeclareLaunchArgument('vggt_slam_min_disparity', default_value='',
+                              description='Keyframe disparity threshold override'),
+        DeclareLaunchArgument('vggt_slam_pointcloud_stride', default_value='',
+                              description='Published pointcloud downsample stride'),
+        DeclareLaunchArgument('vggt_slam_image_topic', default_value='',
+                              description='Compressed image topic for VGGT-SLAM'),
         OpaqueFunction(function=_launch),
     ])

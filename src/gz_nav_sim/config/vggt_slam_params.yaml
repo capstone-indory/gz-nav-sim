@@ -1,0 +1,26 @@
+vggt_slam_bridge:
+  ros__parameters:
+    # 입출력 토픽
+    image_topic: /camera/image_raw/compressed
+    pose_topic: /vggt_slam/pose
+    trajectory_topic: /vggt_slam/trajectory
+    pointcloud_topic: /vggt_slam/pointcloud
+
+    # 월드 프레임
+    world_frame: map
+
+    # ZeroMQ (브리지 ↔ VGGT-SLAM 서버)
+    server_host: 127.0.0.1
+    pull_port: 5555
+    pub_port: 5556
+
+    # 서버 프로세스 (Python 3.11 venv에서 자동 스폰)
+    launch_server: true
+    server_python: /root/gz-nav-sim/venv_vggt/bin/python
+    server_script: /root/gz-nav-sim/src/gz_nav_sim/scripts/vggt_slam_server.py
+    server_repo: /root/gz-nav-sim/src/VGGT-SLAM
+
+    # SLAM 파라미터 (서버로 전달)
+    submap_size: 8          # 서브맵당 새 프레임 수
+    min_disparity: 50.0     # 옵티컬 플로우 기반 키프레임 선별 임계값
+    pointcloud_stride: 8    # 퍼블리시할 때 포인트 다운샘플링

@@ -34,6 +34,7 @@ class Da3DepthNode(Node):
         self.declare_parameter('image_topic', '/front_camera/image_raw')
         self.declare_parameter('camera_info_topic', '/front_camera/camera_info')
         self.declare_parameter('depth_topic', '/front_camera/depth/image_raw')
+        self.declare_parameter('depth_camera_info_topic', '/front_camera/depth/camera_info')
         self.declare_parameter('point_cloud_topic', '/front_camera/depth/points')
         self.declare_parameter('da3_repo_path', '')
         self.declare_parameter('model_id', 'depth-anything/DA3-Large')
@@ -72,6 +73,7 @@ class Da3DepthNode(Node):
         image_topic = self.get_parameter('image_topic').value
         camera_info_topic = self.get_parameter('camera_info_topic').value
         depth_topic = self.get_parameter('depth_topic').value
+        depth_info_topic = self.get_parameter('depth_camera_info_topic').value
         point_cloud_topic = self.get_parameter('point_cloud_topic').value
         scan_topic = self.get_parameter('scan_topic').value
         sensor_qos = QoSProfile(
@@ -87,6 +89,7 @@ class Da3DepthNode(Node):
         )
 
         self._depth_pub = self.create_publisher(Image, depth_topic, output_qos)
+        self._depth_info_pub = self.create_publisher(CameraInfo, depth_info_topic, output_qos)
         self._points_pub = self.create_publisher(PointCloud2, point_cloud_topic, output_qos)
         self.create_subscription(Image, image_topic, self._on_image, sensor_qos)
         self.create_subscription(CameraInfo, camera_info_topic, self._on_camera_info, sensor_qos)
@@ -247,7 +250,7 @@ class Da3DepthNode(Node):
             if self.get_parameter('lidar_scale').value and scan is not None:
                 depth = self._apply_lidar_scale(depth, intrinsics, image_msg, scan)
 
-            self._publish_depth(image_msg, depth)
+            self._publish_depth(image_msg, depth, intrinsics, camera_info_msg)
             self._publish_point_cloud(image_msg, depth, intrinsics)
         except Exception as exc:  # pragma: no cover - runtime inference path
             self.get_logger().error(f'DA3 inference failed: {exc}')
@@ -337,13 +340,35 @@ class Da3DepthNode(Node):
         focal = 0.5 * float(intrinsics[0, 0] + intrinsics[1, 1])
         return depth * (focal / 300.0)
 
-    def _publish_depth(self, image_msg: Image, depth: np.ndarray) -> None:
+    def _publish_depth(
+        self,
+        image_msg: Image,
+        depth: np.ndarray,
+        intrinsics: np.ndarray,
+        rgb_camera_info: CameraInfo,
+    ) -> None:
+        frame_id = self._output_frame_id(image_msg.header.frame_id)
+        header = Header(stamp=image_msg.header.stamp, frame_id=frame_id)
+
         depth_msg = self._bridge.cv2_to_imgmsg(depth.astype(np.float32), encoding='32FC1')
-        depth_msg.header = Header(
-            stamp=image_msg.header.stamp,
-            frame_id=self._output_frame_id(image_msg.header.frame_id),
-        )
+        depth_msg.header = header
         self._depth_pub.publish(depth_msg)
+
+        info_msg = CameraInfo()
+        info_msg.header = header
+        info_msg.height = int(depth.shape[0])
+        info_msg.width = int(depth.shape[1])
+        info_msg.distortion_model = rgb_camera_info.distortion_model or 'plumb_bob'
+        info_msg.d = [0.0] * 5
+        k = intrinsics.astype(np.float64).flatten().tolist()
+        info_msg.k = k
+        info_msg.r = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        info_msg.p = [
+            k[0], k[1], k[2], 0.0,
+            k[3], k[4], k[5], 0.0,
+            k[6], k[7], k[8], 0.0,
+        ]
+        self._depth_info_pub.publish(info_msg)
 
     def _publish_point_cloud(
         self,

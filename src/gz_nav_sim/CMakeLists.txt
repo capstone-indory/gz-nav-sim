@@ -7,6 +7,9 @@ install(PROGRAMS
   scripts/da3_depth_node.py
   scripts/elevator_teleport.py
   scripts/merge_worlds.py
+  scripts/nvblox_mesh_to_gltf.py
+  scripts/vggt_slam_bridge.py
+  scripts/vggt_slam_server.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

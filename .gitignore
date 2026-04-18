@@ -3,3 +3,10 @@ install/
 log/
 src/gz_nav_sim/**/__pycache__/
 src/gz_nav_sim/**/*.pyc
+
+# 외부 SLAM 레포 (각자 자체 git, 별도 setup으로 clone)
+src/VGGT-SLAM/
+src/isaac_ros_nvblox/
+
+# Python venv (VGGT-SLAM server용 Python 3.11)
+venv_vggt/

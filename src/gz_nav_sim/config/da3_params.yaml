@@ -3,6 +3,7 @@ da3_depth_node:
     image_topic: /camera/image_raw
     camera_info_topic: /camera/camera_info
     depth_topic: /camera/depth/image_raw
+    depth_camera_info_topic: /camera/depth/camera_info
     point_cloud_topic: /camera/depth/points
 
     # 입력 이미지는 optical frame 기준으로 받고,
