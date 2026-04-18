@@ -24,3 +24,13 @@ vggt_slam_bridge:
     submap_size: 8          # 서브맵당 새 프레임 수
     min_disparity: 50.0     # 옵티컬 플로우 기반 키프레임 선별 임계값
     pointcloud_stride: 8    # 퍼블리시할 때 포인트 다운샘플링
+
+    # ── LiDAR scale anchor ──────────────────────────────────────────────
+    # 새 submap이 생성될 때 라이다 측정 metric을 SL(4) 노드의 soft prior로 주입.
+    # 노드는 향후 loop closure로 약간 조정될 수 있지만 scale은 안정.
+    scan_topic: /scan
+    camera_info_topic: /camera/camera_info
+    camera_frame: camera_optical_frame
+    lidar_anchor_enabled: true
+    lidar_anchor_sigma: 0.05      # 5%. 작을수록 강한 anchor (lc 영향 ↓)
+    lidar_anchor_min_points: 20   # 카메라 앞쪽 라이다 점 최소 수
