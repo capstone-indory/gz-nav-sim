@@ -2,11 +2,11 @@
 # Bench runner — preset 기반 launch + 자동 기록.
 #
 # 사용법:
-#   ./bench/run.sh <preset> [--record] [--note "..."] [--duration <sec>]
+#   ./bench/run.sh <preset> [--record] [--note "..."] [--duration <sec>] [--explore]
 #
 # 예:
 #   ./bench/run.sh da3_nvblox --record --note "baseline 1차"
-#   ./bench/run.sh vggt_only --duration 180
+#   ./bench/run.sh vggt_only --duration 180 --explore
 #
 # preset = bench/presets/<name>.sh 파일명에서 .sh 제외
 #
@@ -51,11 +51,13 @@ fi
 RECORD=false
 NOTE=""
 DURATION=0
+EXPLORE=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --record) RECORD=true; shift ;;
         --note) NOTE="$2"; shift 2 ;;
         --duration) DURATION="$2"; shift 2 ;;
+        --explore) EXPLORE=true; shift ;;
         *) echo "[warn] unknown arg: $1"; shift ;;
     esac
 done
@@ -117,8 +119,9 @@ echo "[bench] Xvfb :99 PID=${XVFB_PID}"
 BAG_PID=""
 if [ "${RECORD}" = "true" ] && [ ${#RECORD_TOPICS[@]} -gt 0 ]; then
     echo "[bench] recording topics: ${RECORD_TOPICS[*]}"
+    # ros2 bag record default storage = sqlite3 (humble 기본).
+    # mcap은 별도 패키지 필요해서 안 씀.
     ros2 bag record -o "${RUN_DIR}/topics.bag" \
-        --storage mcap \
         "${RECORD_TOPICS[@]}" > "${RUN_DIR}/bag.log" 2>&1 &
     BAG_PID=$!
     sleep 1
@@ -136,12 +139,15 @@ cleanup() {
     # Launch가 spawn한 자식들 — pkill 후 init(=sleep)에 orphan으로 가지만
     # 우리가 wait 못 함. zombie는 system 재시작 전까진 남음 (불가피).
     pkill -f 'ros2 launch gz_nav_sim' 2>/dev/null || true
+    pkill -f 'ros2 launch explore_lite' 2>/dev/null || true
+    pkill -f 'explore_lite/explore' 2>/dev/null || true
     pkill -f 'da3_depth_node' 2>/dev/null || true
     pkill -f 'nvblox_node' 2>/dev/null || true
     pkill -f 'vggt_slam_bridge' 2>/dev/null || true
     pkill -f 'vggt_slam_server' 2>/dev/null || true
     pkill -f 'foxglove_bridge' 2>/dev/null || true
     pkill -f 'gzserver|gzclient' 2>/dev/null || true
+    [ -n "${EXPLORE_PID}" ] && kill "${EXPLORE_PID}" 2>/dev/null && wait "${EXPLORE_PID}" 2>/dev/null || true
     # Xvfb는 우리 직속 자식 → kill + wait로 깔끔하게 reap
     if [ -n "${XVFB_PID}" ]; then
         kill -TERM "${XVFB_PID}" 2>/dev/null && wait "${XVFB_PID}" 2>/dev/null || true
@@ -181,6 +187,26 @@ echo "[bench] ROS_LOG_DIR=${ROS_LOG_DIR} DISPLAY=${DISPLAY} VGL_DISPLAY=${VGL_DI
 vglrun -d egl0 ros2 launch gz_nav_sim sim_nav.launch.py "${LAUNCH_ARGS[@]}" \
     < /dev/null > "${RUN_DIR}/combined.log" 2>&1 &
 LAUNCH_PID=$!
+
+# --explore: Nav2 활성화 대기 후 explore_lite 자동 시작 (frontier-based 자율 탐사)
+EXPLORE_PID=""
+if [ "${EXPLORE}" = "true" ]; then
+    (
+        # Nav2의 /navigate_to_pose action 등장까지 대기 (max 60s)
+        echo "[bench] waiting for Nav2 to be ready..."
+        for i in $(seq 1 30); do
+            if ros2 action list 2>/dev/null | grep -q '/navigate_to_pose'; then
+                echo "[bench] Nav2 ready after ${i} × 2s"
+                break
+            fi
+            sleep 2
+        done
+        echo "[bench] starting explore_lite..."
+        ros2 launch explore_lite explore.launch.py use_sim_time:=true \
+            >> "${RUN_DIR}/combined.log" 2>&1
+    ) &
+    EXPLORE_PID=$!
+fi
 
 # duration 지정 시 자동 종료
 if [ "${DURATION}" -gt 0 ]; then

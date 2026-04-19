@@ -59,6 +59,7 @@ python3 bench/compare.py
 | `--record` | input 토픽을 ros2 bag으로 기록 (재현용) |
 | `--note "..."` | run 메모 저장 |
 | `--duration <sec>` | N초 후 자동 종료 |
+| `--explore` | Nav2 ready 후 explore_lite (frontier-based 자율 탐사) 자동 시작 |
 
 ## 주행 옵션
 
