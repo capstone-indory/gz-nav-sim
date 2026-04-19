@@ -15,9 +15,11 @@
 #     ├ config.sh           # 사용된 preset
 #     ├ launch_args.txt     # 실제 launch args
 #     ├ git_commit.txt      # 코드 commit hash
-#     ├ stdout.log          # 전체 launch 출력
+#     ├ log/                # ROS2 launch가 기록하는 디렉토리 (ROS_LOG_DIR)
+#     │   └ <ts>-<host>-<pid>/
+#     │       └ launch.log  # 노드별 stdout/stderr가 prefix와 함께 합쳐진 로그
 #     ├ topics.bag/         # ros2 bag (--record 시)
-#     ├ metrics.json        # extract_metrics.py 결과
+#     ├ metrics.json        # extract_metrics.py 결과 (launch.log 파싱)
 #     └ notes.md            # --note 내용
 
 set -e
@@ -83,6 +85,11 @@ cd "${REPO_ROOT}"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
+# ROS2 launch의 모든 노드 stdout/stderr가 launch.log에 timestamp + 노드명 prefix로
+# 합쳐져 들어감. 별도 redirect 안 해도 됨.
+export ROS_LOG_DIR="${RUN_DIR}/log"
+mkdir -p "${ROS_LOG_DIR}"
+
 # Stale X 정리 + Xvfb
 pkill -f 'Xvfb.*:99' 2>/dev/null || true
 rm -f /tmp/.X11-unix/X99 /tmp/.X99-lock 2>/dev/null || true
@@ -117,12 +124,16 @@ cleanup() {
     kill "${XVFB_PID}" 2>/dev/null || true
     pkill -f 'Xvfb.*:99' 2>/dev/null || true
 
-    # metrics 추출
-    if [ -f "${RUN_DIR}/stdout.log" ]; then
-        echo "[bench] extracting metrics..."
+    # metrics 추출 — ROS2 launch.log을 자동 발견
+    LAUNCH_LOG=$(find "${RUN_DIR}/log" -name 'launch.log' 2>/dev/null | head -1)
+    if [ -n "${LAUNCH_LOG}" ] && [ -f "${LAUNCH_LOG}" ]; then
+        echo "[bench] extracting metrics from ${LAUNCH_LOG}"
         python3 "${BENCH_DIR}/extract_metrics.py" \
-            "${RUN_DIR}/stdout.log" > "${RUN_DIR}/metrics.json" 2>&1 || \
+            "${LAUNCH_LOG}" > "${RUN_DIR}/metrics.json" 2>&1 || \
             echo "{\"error\": \"extract failed\"}" > "${RUN_DIR}/metrics.json"
+    else
+        echo "[bench] no launch.log found — skip metrics"
+        echo '{"error": "no launch.log"}' > "${RUN_DIR}/metrics.json"
     fi
     echo "finished: $(date +%Y%m%d_%H%M%S)" >> "${RUN_DIR}/notes.md"
     echo "[bench] done. results: ${RUN_DIR}"
@@ -131,8 +142,10 @@ trap cleanup EXIT INT TERM
 
 # ── launch 실행 ──────────────────────────────────────────────────────
 echo "[bench] launching: vglrun -d egl0 ros2 launch gz_nav_sim sim_nav.launch.py ${LAUNCH_ARGS[*]}"
+echo "[bench] ROS_LOG_DIR=${ROS_LOG_DIR}"
+# stdout/stderr는 launch.log에 합쳐짐. 추가로 터미널엔 안 띄움 (background).
 vglrun -d egl0 ros2 launch gz_nav_sim sim_nav.launch.py "${LAUNCH_ARGS[@]}" \
-    > "${RUN_DIR}/stdout.log" 2>&1 &
+    < /dev/null > /dev/null 2>&1 &
 LAUNCH_PID=$!
 
 # duration 지정 시 자동 종료
@@ -143,6 +156,7 @@ if [ "${DURATION}" -gt 0 ]; then
     exit 0
 fi
 
-echo "[bench] launch PID=${LAUNCH_PID}, log=${RUN_DIR}/stdout.log"
+echo "[bench] launch PID=${LAUNCH_PID}"
+echo "[bench] live tail: tail -F ${ROS_LOG_DIR}/*/launch.log"
 echo "[bench] Ctrl+C to stop"
 wait "${LAUNCH_PID}"

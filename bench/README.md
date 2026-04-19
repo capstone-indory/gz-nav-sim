@@ -17,9 +17,11 @@ bench/
 │  ├ launch_args.txt       # 실제 launch args
 │  ├ git_commit.txt        # 코드 commit hash
 │  ├ git_dirty.txt         # uncommitted changes (있을 시)
-│  ├ stdout.log            # 전체 launch stdout
+│  ├ log/                  # ROS_LOG_DIR — ROS2가 직접 기록
+│  │  └ <ts>-<host>-<pid>/
+│  │     └ launch.log      # 노드별 stdout/stderr가 timestamp+prefix로 합쳐진 것
 │  ├ topics.bag/           # ros2 bag (--record 시)
-│  ├ metrics.json          # extract_metrics.py 결과
+│  ├ metrics.json          # extract_metrics.py가 launch.log 파싱한 결과
 │  └ notes.md              # 사용자 메모
 ├ run.sh                # 메인 runner
 ├ drive.sh              # robot 주행 (teleop / nav2 goal / square)
