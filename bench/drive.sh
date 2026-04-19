@@ -56,13 +56,11 @@ send_goal() {
 
 case "$MODE" in
     teleop)
-        echo "[drive] teleop ${DURATION}s vx=$VX wz=$WZ → /cmd_vel_teleop"
-        # velocity_smoother가 cmd_vel_teleop을 받아 cmd_vel로 출력하는 구조 가정
-        # 안 되면 /cmd_vel 직접 publish로 fallback (아래 두 줄 주석 해제)
-        timeout "$DURATION" ros2 topic pub --rate 20 /cmd_vel_teleop geometry_msgs/msg/Twist \
+        echo "[drive] teleop ${DURATION}s vx=$VX wz=$WZ → /cmd_vel"
+        # diff_drive plugin이 /cmd_vel에 직접 sub. velocity_smoother는 /cmd_vel_teleop
+        # 에 sub 안 되어 있는 걸 실측 확인 (Apr 19). 직접 /cmd_vel publish가 답.
+        timeout "$DURATION" ros2 topic pub --rate 20 /cmd_vel geometry_msgs/msg/Twist \
             "{linear: {x: $VX}, angular: {z: $WZ}}" || true
-        # timeout "$DURATION" ros2 topic pub --rate 20 /cmd_vel geometry_msgs/msg/Twist \
-        #     "{linear: {x: $VX}, angular: {z: $WZ}}" || true
         echo "[drive] teleop done"
         ;;
     nav2)
