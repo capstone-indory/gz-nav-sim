@@ -14,21 +14,45 @@ da3_depth_node:
     # auto: cuda -> mps -> cpu 순으로 선택
     device: auto
 
-    model_id: depth-anything/DA3METRIC-LARGE
-    da3_log_level: WARN
+    # LARGE-1.1 — 균형 모델 (속도/품질). ~1.3GB GPU, batch 빠름.
+    # Metric 출력 X → lidar_scale로 보정.
+    model_id: depth-anything/DA3NESTED-GIANT-LARGE-1.1
+    # INFO로 두면 "Model Forward Pass Done. Time: X.XXs" 같은 timing 로그 출력
+    da3_log_level: INFO
 
-    # DA3 입력 전처리
-    process_res: 336
+    # DA3 입력 전처리 — 정확도 우선
+    # process_res 518: 디테일 ↑ (VGGT 수준), 추론 시간 ~2배
+    # input_views 8: multi-view consistency 강화
+    # ref_view_strategy: 시간 순차 frame이라 'middle' 권장
+    process_res: 518
     process_res_method: upper_bound_resize
-    inference_rate_hz: 2.0
-    input_views: 1
+    inference_rate_hz: 1.0
+    input_views: 5
+    # 추론 후 가장 오래된 (input_views - overlap) 만큼만 buffer에서 drop.
+    # 즉 batch 사이에 'overlap' 개의 frame을 다음 batch와 공유 → 연속성 향상.
+    keyframe_overlap: 0
+    ref_view_strategy: middle
 
-    # 라이다 기반 metric scale 보정
+    # Keyframe 선별: VGGT 패턴 (optical flow disparity ≥ threshold만 큐에 적재)
+    keyframe_min_disparity: 30.0
+    keyframe_max_buffer_age_s: 10.0   # 너무 오래된 frame은 버림
+
+    # 라이다 보정 ON — DA3 metric은 일관성 있지만 절대 정확도 부족.
+    # 매 batch fit + EMA smoothing (affine_smooth_alpha=0.3 기본)으로
+    # batch jitter 흡수하면서 점진적 보정. 첫 batch s≈1.0이라 큰 충격 없음.
     scan_topic: /scan
     lidar_scale: true
     lidar_scale_min_points: 5
 
     # PointCloud2 downsample 및 유효 깊이 범위
-    point_cloud_stride: 4
+    # max_depth는 라이다 effective range (10m × 1.1)와 동기 →
+    # 라이다 검증 안 된 11m+ 외삽 영역이 nvblox/world cloud로 새는 거 차단
+    point_cloud_stride: 2
     min_depth_m: 0.1
-    max_depth_m: 15.0
+    max_depth_m: 11.0
+
+    # 매 batch (5 keyframe)의 world-frame RGB pointcloud
+    # 누적 X — 매 inference마다 새 5장만 publish (FIFO replace)
+    world_pointcloud_topic: /camera/depth/world_points
+    world_frame: odom
+    world_pc_voxel_size: 0.05     # voxel down-sample (0=비활성)

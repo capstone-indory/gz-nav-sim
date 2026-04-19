@@ -19,7 +19,7 @@
     # ── 해상도 ──────────────────────────────────────────────────────────
     # 큰 voxel일수록 mesh triangle 수가 8배수로 줄어 → Foxglove 부하 감소
     # 0.05 (5cm) → 0.10 (10cm)면 mesh 데이터량 1/8
-    voxel_size: 0.05
+    voxel_size: 0.8
 
     # ── ESDF (navigation용) ────────────────────────────────────────────
     compute_esdf: true
@@ -48,7 +48,7 @@
     # ── Map clearing ────────────────────────────────────────────────────
     # 로봇 주변 반경 외 mesh 잘라냄 → mesh 데이터량 (r/10)³로 감소
     # 5m면 mesh 크기 1/8. 더 크게 보고 싶으면 키우되 ws 부하 증가.
-    map_clearing_radius_m: 5.0
+    map_clearing_radius_m: 10.0
     map_clearing_frame_id: "base_link"
     clear_outside_radius_rate_hz: 1.0
 
@@ -66,10 +66,14 @@
       do_depth_preprocessing: false
 
       # ── Integrator — DA3 max range에 맞춘 보수값 ─────────────────────
-      projective_integrator_max_integration_distance_m: 8.0
-      projective_integrator_truncation_distance_vox: 4.0
+      projective_integrator_max_integration_distance_m: 10.0
+      # truncation_distance_vox: 6.0 × voxel 0.05 = 30cm → batch별 scale jitter
+      # 흡수. wall ghosting (이중/삼중 벽) 직접 차단.
+      projective_integrator_truncation_distance_vox: 6.0
       weighting_mode: "inverse_square_tsdf_distance_penalty"
-      projective_integrator_max_weight: 5.0
+      # max_weight ↓ = 최근 측정의 영향력 ↑ → scale 보정 개선이 빨리 반영됨
+      # (잘못된 옛 surface가 영구 고정되는 것 방지)
+      projective_integrator_max_weight: 3.0
 
       # ── ESDF integrator ───────────────────────────────────────────────
       esdf_integrator_min_weight: 0.0001
@@ -81,4 +85,5 @@
       mesh_integrator_weld_vertices: true
 
       # ── TSDF decay (오래된 관측 약화 — 시간축 보정) ────────────────
-      tsdf_decay_factor: 0.95
+      # 0.85: 매 frame 15% 감쇠 → 옛 (부정확) surface 빠르게 fade out
+      tsdf_decay_factor: 0.85
