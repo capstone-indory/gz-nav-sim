@@ -43,6 +43,10 @@ def generate_launch_description():
             ('depth/camera_info', depth_info_topic),
             ('color/image', color_topic),
             ('color/camera_info', color_info_topic),
+            # /pose schema 충돌 회피: slam_toolbox가 PoseWithCovarianceStamped로
+            # publish vs nvblox는 PoseStamped로 구독 → Foxglove 경고. nvblox는
+            # TF로 pose 받으니 unused 이름으로 remap해 매칭 끊음.
+            ('pose', 'nvblox_pose_unused'),
         ],
     )
 

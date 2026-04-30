@@ -1,4 +1,4 @@
-<?xml version="1.0" ?>
+<?xml version='1.0' encoding='utf-8'?>
 <sdf version="1.5">
   <model name="office_table">
     <static>true</static>
@@ -6,9 +6,10 @@
       <collision name="collision">
         <pose>-0.000328 -0.000776 0.538111 0 0 0</pose>
         <geometry>
-          <box>
-            <size>2.199990 1.323880 1.094550</size>
-          </box>
+          <mesh>
+            <uri>model://office_table/meshes/office_table.dae</uri>
+            <scale>1.4 1.4 1.4</scale>
+          </mesh>
         </geometry>
       </collision>
       <visual name="visual">

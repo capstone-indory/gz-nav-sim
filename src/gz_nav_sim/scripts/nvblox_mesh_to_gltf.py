@@ -20,7 +20,7 @@ from foxglove_msgs.msg import (Color, SceneEntity, SceneEntityDeletion,
 from geometry_msgs.msg import Point, Pose
 from nvblox_msgs.msg import Mesh
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 
 class MeshToSceneRepublisher(Node):
@@ -41,8 +41,12 @@ class MeshToSceneRepublisher(Node):
 
         sub_qos = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1,
                              reliability=ReliabilityPolicy.RELIABLE)
+        # TRANSIENT_LOCAL: late subscriber도 latest 메시지 즉시 받음 (latched).
+        # VOLATILE이면 Foxglove client가 연결 후 다음 publish (0.2Hz=5초+)까지 빈 화면.
+        # mesh는 누적이라 latest 1개로 전체 scene 재구성 가능 → depth=1 충분.
         pub_qos = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1,
-                             reliability=ReliabilityPolicy.RELIABLE)
+                             reliability=ReliabilityPolicy.RELIABLE,
+                             durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
         self._sub = self.create_subscription(Mesh, in_topic, self._on_mesh, sub_qos)
         self._pub = self.create_publisher(SceneUpdate, out_topic, pub_qos)
@@ -132,6 +136,8 @@ class MeshToSceneRepublisher(Node):
 
         self._stats['out_bytes'] += approx_out
 
+        # 시간당 변화된 entity/deletion만 publish (incremental).
+        # 늦은 subscriber는 그 이후 변화만 보지만 네트워크 부하 최소.
         if update.entities or update.deletions:
             self._pub.publish(update)
 

@@ -1,12 +1,34 @@
+# ROS2 build artifacts
 build/
 install/
 log/
-src/gz_nav_sim/**/__pycache__/
-src/gz_nav_sim/**/*.pyc
 
-# 외부 SLAM 레포 (각자 자체 git, 별도 setup으로 clone)
-src/VGGT-SLAM/
-src/isaac_ros_nvblox/
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
 
 # Python venv (VGGT-SLAM server용 Python 3.11)
 venv_vggt/
+
+# 외부 레포 (각자 자체 git, 별도 setup으로 clone)
+src/VGGT-SLAM/
+src/isaac_ros_nvblox/
+src/Depth-Anything-3/
+src/m-explore-ros2/
+
+# 벤치마크 실행 산출물 (대용량 log/bag — 로컬 전용)
+bench/runs/
+
+# sync_collision_to_visual.py가 만드는 SDF 백업 — 로컬 전용
+*.sdf.bak

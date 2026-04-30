@@ -92,36 +92,39 @@ source install/setup.bash
 export ROS_LOG_DIR="${RUN_DIR}/log"
 mkdir -p "${ROS_LOG_DIR}"
 
-# Xvfb on :99 — 항상 같은 display 사용 (다른 도구·문서와 호환)
-# 컨테이너 PID 1=sleep이라 reap 안 됨 → 우리 trap에서 wait로 직접 reap.
-# 이전 run의 zombie Xvfb (PPID=1)는 X 점유 안 하므로 무시 가능.
-# 단 lock/socket 파일이 stale로 남아 있으면 정리.
-export DISPLAY=:99
-# 진짜 살아있는 Xvfb on :99 있나? (zombie 제외)
-LIVE_XVFB=$(pgrep -f 'Xvfb.*:99' | while read pid; do
-    [ -d "/proc/$pid" ] && [ "$(awk '/^State:/{print $2}' /proc/$pid/status)" != "Z" ] && echo "$pid"
-done | head -1)
-if [ -n "${LIVE_XVFB}" ]; then
-    echo "[bench] live Xvfb on :99 already (PID=${LIVE_XVFB}). 종료 후 재시작."
-    kill -TERM "${LIVE_XVFB}" 2>/dev/null && wait "${LIVE_XVFB}" 2>/dev/null
-fi
-# Stale lock/socket 정리 (live Xvfb 없을 때만 — 실수 방지 위해 위 블록 후)
-rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 2>/dev/null
-Xvfb :99 -screen 0 1280x1024x24 &
-XVFB_PID=$!
-sleep 2
-if ! ps -p $XVFB_PID > /dev/null; then
-    echo "[bench] Xvfb 시작 실패"; exit 1
-fi
-echo "[bench] Xvfb :99 PID=${XVFB_PID}"
+# X server는 xvfb-run으로 launch에 wrap.
+# 직접 Xvfb 관리 (이전): X server :99 mid-run crash 두 번 발생 (XIO error 33).
+# xvfb-run -a: 자유 display 자동 선택, command 종료 시 자동 cleanup.
+# DISPLAY는 xvfb-run이 자식 프로세스에 자동 inject.
+XVFB_PID=""  # 더 이상 직접 spawn 안 함 (cleanup 호환용 빈 변수)
 
 # ── ros2 bag record (background) ─────────────────────────────────────
 BAG_PID=""
 if [ "${RECORD}" = "true" ] && [ ${#RECORD_TOPICS[@]} -gt 0 ]; then
     echo "[bench] recording topics: ${RECORD_TOPICS[*]}"
-    # ros2 bag record default storage = sqlite3 (humble 기본).
-    # mcap은 별도 패키지 필요해서 안 씀.
+    # Storage: mcap (ros-humble-rosbag2-storage-mcap 필요) — sqlite3보다
+    # write throughput 3-5배 빠름 + 압축 지원 → disk IO stall 적음.
+    # max-cache-size: 500MB. burst load 시 디스크 flush 대기로 메시지 drop 방지.
+    # qos-profile-overrides: subscriber queue depth 200으로 deeper buffering.
+    QOS_FILE="${RUN_DIR}/bag_qos.yaml"
+    : > "${QOS_FILE}"
+    for topic in "${RECORD_TOPICS[@]}"; do
+        # /tf_static 등 transient_local은 publisher 프로필 그대로 따라가도록 skip.
+        if [ "${topic}" = "/tf_static" ] || [ "${topic}" = "/map" ]; then
+            continue
+        fi
+        cat >> "${QOS_FILE}" <<EOF
+${topic}:
+  history: keep_last
+  depth: 200
+  reliability: reliable
+  durability: volatile
+EOF
+    done
     ros2 bag record -o "${RUN_DIR}/topics.bag" \
+        -s mcap \
+        --max-cache-size 500000000 \
+        --qos-profile-overrides-path "${QOS_FILE}" \
         "${RECORD_TOPICS[@]}" > "${RUN_DIR}/bag.log" 2>&1 &
     BAG_PID=$!
     sleep 1
@@ -129,30 +132,56 @@ fi
 
 # ── 종료 핸들러 ──────────────────────────────────────────────────────
 LAUNCH_PID=""
+CLEANUP_DONE=0
 cleanup() {
+    # INT/TERM → cleanup 후 EXIT trap이 또 호출되는 거 방지
+    [ "${CLEANUP_DONE}" = "1" ] && return 0
+    CLEANUP_DONE=1
     echo ""
     echo "[bench] shutting down..."
-    # 자식 프로세스를 SIGINT 후 wait — 컨테이너 PID 1=sleep라 우리가 reap 안 하면
-    # zombie 누적. wait가 자식 reap.
     [ -n "${BAG_PID}" ] && kill -INT "${BAG_PID}" 2>/dev/null && wait "${BAG_PID}" 2>/dev/null || true
-    [ -n "${LAUNCH_PID}" ] && kill -INT "${LAUNCH_PID}" 2>/dev/null && wait "${LAUNCH_PID}" 2>/dev/null || true
-    # Launch가 spawn한 자식들 — pkill 후 init(=sleep)에 orphan으로 가지만
-    # 우리가 wait 못 함. zombie는 system 재시작 전까진 남음 (불가피).
-    pkill -f 'ros2 launch gz_nav_sim' 2>/dev/null || true
-    pkill -f 'ros2 launch explore_lite' 2>/dev/null || true
-    pkill -f 'explore_lite/explore' 2>/dev/null || true
-    pkill -f 'da3_depth_node' 2>/dev/null || true
-    pkill -f 'nvblox_node' 2>/dev/null || true
-    pkill -f 'vggt_slam_bridge' 2>/dev/null || true
-    pkill -f 'vggt_slam_server' 2>/dev/null || true
-    pkill -f 'foxglove_bridge' 2>/dev/null || true
-    pkill -f 'gzserver|gzclient' 2>/dev/null || true
-    [ -n "${EXPLORE_PID}" ] && kill "${EXPLORE_PID}" 2>/dev/null && wait "${EXPLORE_PID}" 2>/dev/null || true
-    # Xvfb는 우리 직속 자식 → kill + wait로 깔끔하게 reap
-    if [ -n "${XVFB_PID}" ]; then
-        kill -TERM "${XVFB_PID}" 2>/dev/null && wait "${XVFB_PID}" 2>/dev/null || true
+    # setsid로 spawn했으므로 LAUNCH_PID = 새 process group의 leader (PGID).
+    # xvfb-run은 SIGINT를 자식에 forward 안 하므로 PGID에 직접 SIGTERM → 전 자식 동시 종료.
+    # 15초 grace: DA3 inference cycle이 길면 (publish 6초+) 5초로는 cuda context
+    # 정리 못 함 → SIGKILL되며 GPU 메모리 leak 발생 (nvidia-smi에 process 없는데 GB 잔여).
+    if [ -n "${LAUNCH_PID}" ]; then
+        kill -TERM -- "-${LAUNCH_PID}" 2>/dev/null || true
+        for _ in $(seq 1 75); do
+            kill -0 -- "-${LAUNCH_PID}" 2>/dev/null || break
+            sleep 0.2
+        done
+        kill -KILL -- "-${LAUNCH_PID}" 2>/dev/null || true
+        wait "${LAUNCH_PID}" 2>/dev/null || true
     fi
-    rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 2>/dev/null
+    [ -n "${EXPLORE_PID}" ] && kill "${EXPLORE_PID}" 2>/dev/null && wait "${EXPLORE_PID}" 2>/dev/null || true
+
+    # ── 유령 방어 (name-based SIGKILL) ────────────────────────────────
+    # PGID kill을 빠져나가는 경우: Python 노드가 SIGTERM handler로 shutdown 중
+    # block + SIGKILL 타이밍 놓침 → parent 죽으면 init(sleep infinity)이 adopt →
+    # 3일 넘게 살아있으며 cmd_vel 등 topic에 계속 publish (옛날 데이터 유령).
+    # 과거 elevator_teleport 5개, vggt_slam_bridge가 이렇게 남는 사고 있었음.
+    # 현 run의 자식은 PGID kill에서 이미 정리됐으니 name match 남은 건 전부 유령.
+    for pat in \
+        'ros2 launch explore_lite' \
+        'explore_lite/explore' \
+        'vggt_slam_bridge' \
+        'vggt_slam_server' \
+        'da3_depth_node' \
+        'nvblox_node' \
+        'nvblox_mesh_to_gltf' \
+        'elevator_teleport' \
+        'foxglove_bridge' \
+        'async_slam_toolbox_node' \
+        'gzserver' \
+        'gzclient' \
+        'component_container_isolated.*nav2' \
+        'xvfb-run' \
+        'Xvfb'; do
+        pkill -KILL -f "$pat" 2>/dev/null || true
+    done
+    # DDS shm + launch params 잔여 정리 (다음 run이 깨끗하게 시작되도록)
+    rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* 2>/dev/null || true
+    rm -f /tmp/launch_params_* 2>/dev/null || true
 
     # metrics 추출 — combined.log (노드 stdout/stderr)이 더 풍부.
     # 없으면 launch.log fallback (ROS launch 시스템 이벤트만)
@@ -177,26 +206,33 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # ── launch 실행 ──────────────────────────────────────────────────────
-# vglrun이 SSH client IP로 DISPLAY 자동 override하는 거 차단 — VGL_DISPLAY로 강제
-export VGL_DISPLAY=":99"
-echo "[bench] launching: vglrun -d egl0 ros2 launch gz_nav_sim sim_nav.launch.py ${LAUNCH_ARGS[*]}"
-echo "[bench] ROS_LOG_DIR=${ROS_LOG_DIR} DISPLAY=${DISPLAY} VGL_DISPLAY=${VGL_DISPLAY}"
-# launch 파일 모든 노드가 output='screen' → ros2 launch stdout으로 갬.
-# /dev/null로 묻으면 노드 출력 다 잃음. RUN_DIR/combined.log에 캡처.
-# (launch.log는 ROS launch 시스템 이벤트, combined.log은 노드 stdout/stderr)
-vglrun -d egl0 ros2 launch gz_nav_sim sim_nav.launch.py "${LAUNCH_ARGS[@]}" \
+# xvfb-run -a: 자유 display 자동 + command 종료 시 자동 cleanup.
+# vglrun -d egl0: GPU EGL 경로. xvfb-run이 inject한 DISPLAY를 vglrun이 사용.
+echo "[bench] launching via xvfb-run: ros2 launch gz_nav_sim sim_nav.launch.py ${LAUNCH_ARGS[*]}"
+echo "[bench] ROS_LOG_DIR=${ROS_LOG_DIR}"
+# setsid: 새 session + process group 리더로 spawn. LAUNCH_PID == PGID.
+# 종료 시 kill -- -$LAUNCH_PID로 xvfb-run+vglrun+ros2 launch+모든 노드 한번에 종료.
+setsid xvfb-run -a -s "-screen 0 1280x1024x24" \
+    vglrun -d egl0 \
+    ros2 launch gz_nav_sim sim_nav.launch.py "${LAUNCH_ARGS[@]}" \
     < /dev/null > "${RUN_DIR}/combined.log" 2>&1 &
 LAUNCH_PID=$!
 
-# --explore: Nav2 활성화 대기 후 explore_lite 자동 시작 (frontier-based 자율 탐사)
+# --explore: Nav2 lifecycle ACTIVE까지 대기 후 explore_lite 자동 시작
+# (action 토픽만 보이면 lifecycle은 아직 inactive일 수 있어 첫 goal에서 SIGSEGV 위험)
 EXPLORE_PID=""
 if [ "${EXPLORE}" = "true" ]; then
     (
-        # Nav2의 /navigate_to_pose action 등장까지 대기 (max 60s)
-        echo "[bench] waiting for Nav2 to be ready..."
-        for i in $(seq 1 30); do
-            if ros2 action list 2>/dev/null | grep -q '/navigate_to_pose'; then
-                echo "[bench] Nav2 ready after ${i} × 2s"
+        echo "[bench] waiting for Nav2 bt_navigator lifecycle = active (max 90s)..."
+        for i in $(seq 1 45); do
+            STATE=$(ros2 lifecycle get /bt_navigator 2>/dev/null | head -1)
+            if echo "$STATE" | grep -q "active"; then
+                echo "[bench] bt_navigator ACTIVE after ${i} × 2s"
+                # planner_server / controller_server 도 확인
+                CTRL_STATE=$(ros2 lifecycle get /controller_server 2>/dev/null | head -1)
+                PLAN_STATE=$(ros2 lifecycle get /planner_server 2>/dev/null | head -1)
+                echo "[bench]   controller_server: $CTRL_STATE"
+                echo "[bench]   planner_server:    $PLAN_STATE"
                 break
             fi
             sleep 2

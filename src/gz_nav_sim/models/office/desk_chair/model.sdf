@@ -1,4 +1,4 @@
-<?xml version="1.0" ?>
+<?xml version='1.0' encoding='utf-8'?>
 <sdf version="1.5">
   <model name="desk_chair">
     <static>true</static>
@@ -6,10 +6,10 @@
       <collision name="collision">
         <pose>0.001581 0.000308 0.612847 0 0 0</pose>
         <geometry>
-          <cylinder>
-            <radius>0.33</radius>
-            <length>1.23</length>
-          </cylinder>
+          <mesh>
+            <uri>model://desk_chair/meshes/desk_chair.obj</uri>
+            <scale>0.01 0.01 0.01</scale>
+          </mesh>
         </geometry>
       </collision>
       <visual name="visual">

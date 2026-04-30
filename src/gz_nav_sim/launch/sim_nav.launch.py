@@ -53,7 +53,30 @@ def _launch(context, *_args, **_kwargs):
     use_nvblox = LaunchConfiguration('use_nvblox').perform(context).lower() == 'true'
     use_vggt_slam = LaunchConfiguration('use_vggt_slam').perform(context).lower() == 'true'
     use_elevator = LaunchConfiguration('use_elevator').perform(context).lower() == 'true'
-    world    = os.path.join(pkg, 'worlds', 'combined.world')
+    robot_model = LaunchConfiguration('robot_model').perform(context).strip() or 'robot'
+    direct_depth = LaunchConfiguration('direct_depth').perform(context).lower() == 'true'
+
+    # 카메라 z height (TF용) — robot_model에 따라 달라짐.
+    #   'robot'      → 0.50m (mono RGB)
+    #   'robot_d456' → 0.80m (Realsense D456 depth+RGB on a mast)
+    if robot_model == 'robot_d456':
+        camera_z = '0.80'
+    else:
+        camera_z = '0.5'
+
+    # World file: combined.world 의 model://robot 를 robot_model 로 substitute.
+    # 35K-line world를 통째 복사하지 않고 launch 시 한 번 텍스트 치환.
+    world_template = os.path.join(pkg, 'worlds', 'combined.world')
+    if robot_model == 'robot':
+        world = world_template
+    else:
+        with open(world_template, 'r') as f:
+            world_content = f.read()
+        world_content = world_content.replace(
+            'model://robot</uri>', f'model://{robot_model}</uri>')
+        world = f'/tmp/sim_nav_world_{robot_model}.world'
+        with open(world, 'w') as f:
+            f.write(world_content)
 
     workspace_root = os.path.abspath(os.path.join(pkg, '..', '..', '..', '..'))
     da3_repo = os.path.join(workspace_root, 'src', 'Depth-Anything-3')
@@ -127,7 +150,7 @@ def _launch(context, *_args, **_kwargs):
         executable='static_transform_publisher',
         name='camera_frame_tf',
         arguments=[
-            '--x', '0.16', '--y', '0', '--z', '0.5',
+            '--x', '0.16', '--y', '0', '--z', camera_z,
             '--roll', '0', '--pitch', '0', '--yaw', '0',
             '--frame-id', 'base_link', '--child-frame-id', 'camera_frame',
         ],
@@ -204,7 +227,11 @@ def _launch(context, *_args, **_kwargs):
             'use_sim_time': 'true',
             'autostart': 'true',
             'params_file': nav2_params,
-            'use_composition': 'True',
+            # use_composition=True + LoadComposableNodes의 RewrittenYaml param이
+            # component에 전달되지 않는 Humble 버그 → costmap이 hardcoded default 플러그인
+            # (static_layer 포함) 로드 → slam의 transient_local map과 race → SIGSEGV.
+            # False면 각 서버가 별도 프로세스로 뜨고 --params-file 직접 로드 → yaml 적용 확실.
+            'use_composition': 'False',
             'container_name': 'nav2_container',
         }.items(),
     )
@@ -270,12 +297,22 @@ def _launch(context, *_args, **_kwargs):
         parameters=[{'use_sim_time': True, 'robot_model': 'robot'}],
     )
 
+    # nvblox depth 입력 분기:
+    #   direct_depth=true (D456 native depth → nvblox 직접): /d456/depth/*
+    #   direct_depth=false (DA3/VGGT 출력 사용): /camera/depth/*
+    if direct_depth:
+        nvblox_depth_topic = '/d456/depth/image_raw'
+        nvblox_depth_info_topic = '/d456/depth/camera_info'
+    else:
+        nvblox_depth_topic = '/camera/depth/image_raw'
+        nvblox_depth_info_topic = '/camera/depth/camera_info'
+
     nvblox_include = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg, 'launch', 'nvblox.launch.py')),
         launch_arguments={
-            'depth_topic': '/camera/depth/image_raw',
-            'depth_info_topic': '/camera/depth/camera_info',
+            'depth_topic': nvblox_depth_topic,
+            'depth_info_topic': nvblox_depth_info_topic,
             'color_topic': '/camera/image_raw',
             'color_info_topic': '/camera/camera_info',
         }.items(),
@@ -303,7 +340,9 @@ def _launch(context, *_args, **_kwargs):
         SetEnvironmentVariable('GAZEBO_PLUGIN_PATH', plugin_paths),
         SetEnvironmentVariable('GAZEBO_MEDIA_PATH', media_paths),
         SetEnvironmentVariable('FASTDDS_BUILTIN_TRANSPORTS', 'UDPv4'),
-        SetEnvironmentVariable('DISPLAY', ':99'),
+        # DISPLAY는 xvfb-run이 자식에 inject한 값 그대로 사용 (보통 :100, :101...).
+        # 이전에 ':99'로 override 했었는데 xvfb-run -a 자유 display 선택 결과와
+        # 충돌 → gzserver "xcb_connection_has_error" → CameraSensor render 불가.
         gzserver,
     ]
     if not headless:
@@ -342,6 +381,18 @@ def _launch(context, *_args, **_kwargs):
             }],
             output='screen',
         ))
+        # raw → compressed republisher: Foxglove에서 대역폭 작은 압축 이미지 사용 가능.
+        # vggt_slam_bridge도 /camera/image_raw/compressed를 input으로 기대함.
+        launch_actions.append(Node(
+            package='image_transport', executable='republish',
+            name='image_compressor',
+            arguments=['raw', 'compressed'],
+            remappings=[
+                ('in', '/camera/image_raw'),
+                ('out/compressed', '/camera/image_raw/compressed'),
+            ],
+            output='log',
+        ))
     return launch_actions
 
 
@@ -353,6 +404,10 @@ def generate_launch_description():
         DeclareLaunchArgument('use_nvblox', default_value='false', description='nvblox 3D mapping 노드 (isaac_ros_nvblox 필요)'),
         DeclareLaunchArgument('use_vggt_slam', default_value='false', description='VGGT-SLAM 브리지 (Python 3.11 venv 서버 spawn)'),
         DeclareLaunchArgument('use_elevator', default_value='true', description='엘리베이터 텔레포트 노드'),
+        DeclareLaunchArgument('robot_model', default_value='robot',
+                              description='Robot 모델 디렉토리. "robot"(mono RGB 0.5m) | "robot_d456"(D456 depth+RGB 0.8m)'),
+        DeclareLaunchArgument('direct_depth', default_value='false',
+                              description='True면 D456 native depth(/d456/depth/*)를 nvblox 입력으로 직접 사용. DA3/VGGT 우회.'),
         DeclareLaunchArgument('da3_model_id', default_value='',
                               description='Optional DA3 model override; empty uses YAML'),
         DeclareLaunchArgument('da3_process_res', default_value='',

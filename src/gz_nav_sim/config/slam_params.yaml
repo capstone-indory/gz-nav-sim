@@ -16,7 +16,7 @@ slam_toolbox:
 
     debug_logging: false
     throttle_scans: 1
-    transform_publish_period: 0.02
+    transform_publish_period: 0.01   # 50Hz → 100Hz. nvblox가 회전 시 TF 못 따라가 depth drop ("Deleted N because we could not interpolate transforms") 25회 관측 → 완화.
     map_update_interval: 3.0
     resolution: 0.05
     min_laser_range: 0.12
@@ -29,8 +29,8 @@ slam_toolbox:
 
     use_scan_matching: true
     use_scan_barycenter: true
-    minimum_travel_distance: 0.3
-    minimum_travel_heading: 0.3
+    minimum_travel_distance: 0.0
+    minimum_travel_heading: 0.0
     scan_buffer_size: 10
     scan_buffer_maximum_scan_distance: 10.0
     link_match_minimum_response_fine: 0.1

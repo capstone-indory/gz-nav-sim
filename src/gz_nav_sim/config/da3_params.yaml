@@ -14,27 +14,29 @@ da3_depth_node:
     # auto: cuda -> mps -> cpu 순으로 선택
     device: auto
 
-    # LARGE-1.1 — 균형 모델 (속도/품질). ~1.3GB GPU, batch 빠름.
-    # Metric 출력 X → lidar_scale로 보정.
-    model_id: depth-anything/DA3NESTED-GIANT-LARGE-1.1
-    # INFO로 두면 "Model Forward Pass Done. Time: X.XXs" 같은 timing 로그 출력
+    # ── ACCURACY 우선 streaming-light ─────────────────────────────────
+    # DA3-LARGE-1.1: 1.6GB, multi-view 지원, VGGT-comparable 품질.
+    # Lidar_scale로 metric 보정. NESTED-GIANT-LARGE는 VRAM 부담 + chunk 8 OOM 위험.
+    model_id: depth-anything/DA3-LARGE-1.1
     da3_log_level: INFO
 
-    # DA3 입력 전처리 — 정확도 우선
-    # process_res 518: 디테일 ↑ (VGGT 수준), 추론 시간 ~2배
-    # input_views 8: multi-view consistency 강화
-    # ref_view_strategy: 시간 순차 frame이라 'middle' 권장
-    process_res: 518
+    # Streaming-light (정확도 우선):
+    # - chunk 8 / overlap 4 (streaming 원본 50% 비율)
+    # - process_res 518: detail ↑ (336 대비 2배, 벽 경계 뚜렷)
+    # - 추론 시간 ~0.2s/chunk 예상 → 초당 5 chunk
+    process_res: 504
     process_res_method: upper_bound_resize
     inference_rate_hz: 1.0
-    input_views: 5
-    # 추론 후 가장 오래된 (input_views - overlap) 만큼만 buffer에서 drop.
-    # 즉 batch 사이에 'overlap' 개의 frame을 다음 batch와 공유 → 연속성 향상.
-    keyframe_overlap: 0
-    ref_view_strategy: middle
+    input_views: 8
+    keyframe_overlap: 1
+    # 큐 최대 크기. chunk(8) + 다음 chunk buffer 여유
+    image_buffer_maxlen: 12
+    # saddle_balanced: streaming 원본 default, view geometry 균형잡음
+    ref_view_strategy: saddle_balanced
 
-    # Keyframe 선별: VGGT 패턴 (optical flow disparity ≥ threshold만 큐에 적재)
-    keyframe_min_disparity: 30.0
+    # keyframe filter 완화 — 2px로 더 낮춤. 정지 중에도 조명/texture 변화로
+    # 2px 정도는 거의 항상 나옴 → buffer stall 방지 확실.
+    keyframe_min_disparity: 10.0
     keyframe_max_buffer_age_s: 10.0   # 너무 오래된 frame은 버림
 
     # 라이다 보정 ON — DA3 metric은 일관성 있지만 절대 정확도 부족.
@@ -51,8 +53,15 @@ da3_depth_node:
     min_depth_m: 0.1
     max_depth_m: 11.0
 
-    # 매 batch (5 keyframe)의 world-frame RGB pointcloud
-    # 누적 X — 매 inference마다 새 5장만 publish (FIFO replace)
+    # 매 inference의 world-frame RGB pointcloud (단일 frame)
+    # 누적 X — 매 inference마다 새 1장만 publish (FIFO replace)
     world_pointcloud_topic: /camera/depth/world_points
     world_frame: odom
     world_pc_voxel_size: 0.05     # voxel down-sample (0=비활성)
+
+    # Radius outlier filter — KDTree 기반 isolated point 제거.
+    # CPU contention 상황 (DA3 + nvblox + Gazebo 동시)에서 KDTree build/query가
+    # chunk당 1~9초 잡아 chunk rate를 0.4 Hz 이하로 묶음.
+    # 끔 → edge bleeding 점이 약간 늘 수 있지만 nvblox TSDF가 흡수 가능.
+    # voxel down-sample (world_pc_voxel_size)과 z-score outlier가 일부 보완.
+    outlier_filter_enable: false

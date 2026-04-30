@@ -1,4 +1,4 @@
-<?xml version="1.0" ?>
+<?xml version='1.0' encoding='utf-8'?>
 <sdf version="1.5">
   <model name="cafe_counter">
     <static>true</static>
@@ -6,9 +6,10 @@
       <collision name="collision">
         <pose>0.598126 -0.024529 0.539205 0 0 0</pose>
         <geometry>
-          <box>
-            <size>2.424880 0.666320 1.078160</size>
-          </box>
+          <mesh>
+            <uri>model://cafe_counter/meshes/counter_sink.obj</uri>
+            <scale>0.01 0.01 0.01</scale>
+          </mesh>
         </geometry>
       </collision>
       <visual name="visual">
