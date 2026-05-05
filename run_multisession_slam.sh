@@ -253,28 +253,27 @@ fi
 
 # ── 프론트엔드 dev (:5173) ─────────────────────────────────────────────
 if [[ $WANT_FRONTEND == 1 ]]; then
-    # Vite 8+ 가 Node 18+ 요구. 우분투 22.04 의 apt nodejs 는 12.x → 부족.
-    # 18 미만이면 NodeSource 18 LTS 로 교체.
+    # Vite 8+ 가 Node 20.19+ / 22.12+ 요구. 우분투 22.04 apt 기본은 12.x.
+    # 20 미만이면 NodeSource 22 LTS 로 교체.
     NODE_OK=0
     if command -v node >/dev/null 2>&1; then
         NODE_MAJOR=$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')
-        if [[ -n $NODE_MAJOR ]] && (( NODE_MAJOR >= 18 )); then
+        if [[ -n $NODE_MAJOR ]] && (( NODE_MAJOR >= 20 )); then
             NODE_OK=1
         fi
     fi
     if [[ $NODE_OK == 0 ]]; then
-        echo "[boot] node 18+ 필요 — NodeSource 로 설치..."
-        # 기존 구버전 제거 후 NodeSource 18.x 추가
+        echo "[boot] node 20+ 필요 — NodeSource 22.x 로 설치..."
         apt-get remove -y nodejs npm libnode72 >>"$LOG_DIR/frontend.log" 2>&1 || true
         apt-get install -y curl ca-certificates gnupg >>"$LOG_DIR/frontend.log" 2>&1
         mkdir -p /etc/apt/keyrings
         curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
             | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg 2>>"$LOG_DIR/frontend.log"
-        echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x nodistro main" \
+        echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
             > /etc/apt/sources.list.d/nodesource.list
         apt-get update >>"$LOG_DIR/frontend.log" 2>&1
         apt-get install -y nodejs >>"$LOG_DIR/frontend.log" 2>&1 \
-            || { echo "[warn] nodejs 18 설치 실패 — 프론트엔드 skip"; WANT_FRONTEND=0; }
+            || { echo "[warn] nodejs 22 설치 실패 — 프론트엔드 skip"; WANT_FRONTEND=0; }
     fi
 fi
 if [[ $WANT_FRONTEND == 1 ]]; then
