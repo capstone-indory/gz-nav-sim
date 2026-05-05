@@ -168,8 +168,11 @@ if [[ $WANT_SIM == 1 ]]; then
 
     # /odom 토픽 올라올 때까지 대기 (최대 60초)
     echo -n "[boot] waiting for /odom..."
+    # ROS2 setup.bash 가 unset 변수 참조 → set -u 와 충돌. 이 블록만 해제.
+    set +u
     source /opt/ros/humble/setup.bash
     source "$ROOT/install/setup.bash"
+    set -u
     for _ in {1..60}; do
         if ros2 topic list 2>/dev/null | grep -q '^/odom$'; then
             echo " ready"; break
