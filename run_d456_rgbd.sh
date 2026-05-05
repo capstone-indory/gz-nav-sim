@@ -18,6 +18,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 source /opt/ros/humble/setup.bash
+if [ -f /home/fnhid/lingbot-real-orc/install/explore_lite_msgs/share/explore_lite_msgs/package.bash ]; then
+    source /home/fnhid/lingbot-real-orc/install/explore_lite_msgs/share/explore_lite_msgs/package.bash
+fi
+if [ -f /home/fnhid/lingbot-real-orc/install/explore_lite/share/explore_lite/package.bash ]; then
+    source /home/fnhid/lingbot-real-orc/install/explore_lite/share/explore_lite/package.bash
+fi
 source install/setup.bash
 
 cleanup_existing_sim() {
@@ -59,15 +65,16 @@ echo "[info] D456 RGB-D + nvblox + semantic VLM 실행 — Foxglove ws://localho
 echo ""
 
 LAUNCH_CMD=(ros2 launch gz_nav_sim sim_nav.launch.py \
-  headless:=false \
+  headless:=true \
   use_foxglove:=true \
   robot_model:=robot_d456 \
   direct_depth:=true \
   use_da3:=false \
   use_nvblox:=true \
   use_vggt_slam:=false \
+  use_explore:="${USE_EXPLORE:-true}" \
   use_semantic_vlm:=true \
-  vlm_frame_interval:=20 \
+  vlm_frame_interval:="${VLM_FRAME_INTERVAL:-40}" \
   vlm_model:="${VLM_MODEL:-Qwen/Qwen2.5-VL-3B-Instruct}" \
   vlm_device:="${VLM_DEVICE:-auto}" \
   use_elevator:=true)

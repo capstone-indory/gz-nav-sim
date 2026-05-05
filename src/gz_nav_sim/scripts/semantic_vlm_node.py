@@ -21,6 +21,7 @@ from typing import Optional
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
+from foxglove_msgs.msg import Color, ImageAnnotations, KeyValuePair, Point2, PointsAnnotation, TextAnnotation
 from geometry_msgs.msg import Point
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
@@ -33,7 +34,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 
-SYSTEM_PROMPT = """You are a robot visual inspection module.
+TEXT_OBJECT_SYSTEM_PROMPT = """You are a robot visual inspection module.
 
 Input: one camera frame.
 
@@ -70,7 +71,43 @@ Output schema:
   "need_human_check": boolean
 }"""
 
-USER_PROMPT = "Return only the JSON object for this frame."
+TEXT_OBJECT_USER_PROMPT = "Return only the JSON object for this frame."
+
+SCENE_DESCRIPTION_SYSTEM_PROMPT = """You are a robot scene description module.
+
+Input: one robot camera frame.
+
+Task:
+Describe only what is visibly present in this frame for remote monitoring.
+For the main visible objects you mention, also return where they are in image pixel coordinates.
+
+Rules:
+- Return only valid JSON.
+- Do not explain outside JSON.
+- Do not guess unseen areas.
+- Do not infer hidden objects.
+- If visibility is poor, state that clearly.
+- Prefer concise factual descriptions.
+- Use pixel coordinates from the input image.
+- If an object's image location is unclear, set bbox_xyxy=null.
+- The Korean control summary must mention only visible evidence.
+
+Output schema:
+{
+  "scene_description_ko": "현재 프레임에 대한 짧고 사실적인 한국어 설명",
+  "objects": [
+    {
+      "label": "visible object name",
+      "bbox_xyxy": [x1, y1, x2, y2] | null,
+      "visible_evidence_ko": "이 물체가 왜 그렇게 보이는지에 대한 짧은 근거",
+      "confidence": "low|medium|high"
+    }
+  ],
+  "control_summary_ko": "관제에 보낼 한국어 한 문장",
+  "need_human_check": boolean
+}"""
+
+SCENE_DESCRIPTION_USER_PROMPT = "Return only the JSON object describing this frame."
 
 OBJECT_TYPES = {
     'sign',
@@ -131,6 +168,8 @@ class SemanticVlmNode(Node):
         self.declare_parameter('camera_info_topic', '/d456/depth/camera_info')
         self.declare_parameter('detections_topic', '/semantic_vlm/detections')
         self.declare_parameter('markers_topic', '/semantic_vlm/markers')
+        self.declare_parameter('image_annotations_topic', '/semantic_vlm/image_annotations')
+        self.declare_parameter('task_mode', 'scene_description')
         self.declare_parameter('model_name', 'Qwen/Qwen2.5-VL-3B-Instruct')
         self.declare_parameter('device', 'auto')
         self.declare_parameter('torch_dtype', 'auto')
@@ -200,6 +239,11 @@ class SemanticVlmNode(Node):
             String, str(self.get_parameter('detections_topic').value), out_qos)
         self._pub_markers = self.create_publisher(
             MarkerArray, str(self.get_parameter('markers_topic').value), out_qos)
+        self._pub_image_annotations = self.create_publisher(
+            ImageAnnotations,
+            str(self.get_parameter('image_annotations_topic').value),
+            out_qos,
+        )
 
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
@@ -278,36 +322,44 @@ class SemanticVlmNode(Node):
             return
 
         height, width = job.rgb.shape[:2]
-        observation = self._validate_observation(parsed, width, height)
+        task_mode = str(self.get_parameter('task_mode').value).strip().lower()
+        if task_mode == 'scene_description':
+            observation = self._validate_scene_description(parsed, width, height)
+        else:
+            observation = self._validate_observation(parsed, width, height)
         if observation is None:
             self.get_logger().warn(f'VLM schema validation failed. raw_output={raw!r}')
             return
 
         enriched_objects = []
         now_sec = self._stamp_sec(job.stamp)
-        for obj in observation['objects']:
-            world_xyz, frame_id = self._position_object(obj, job)
-            candidate = self._update_candidate(obj, world_xyz, frame_id, now_sec, observation)
-            enriched = copy.deepcopy(obj)
-            enriched.update({
-                'candidate_id': candidate.id,
-                'annotation_status': 'confirmed' if candidate.confirmed else 'candidate',
-                'observations': candidate.observations,
-                'world_xyz': list(candidate.world_xyz) if candidate.world_xyz is not None else None,
-                'frame_id': candidate.frame_id,
-            })
-            enriched_objects.append(enriched)
+        if task_mode != 'scene_description':
+            for obj in observation['objects']:
+                world_xyz, frame_id = self._position_object(obj, job)
+                candidate = self._update_candidate(obj, world_xyz, frame_id, now_sec, observation)
+                enriched = copy.deepcopy(obj)
+                enriched.update({
+                    'candidate_id': candidate.id,
+                    'annotation_status': 'confirmed' if candidate.confirmed else 'candidate',
+                    'observations': candidate.observations,
+                    'world_xyz': list(candidate.world_xyz) if candidate.world_xyz is not None else None,
+                    'frame_id': candidate.frame_id,
+                })
+                enriched_objects.append(enriched)
+            self._prune_candidates(now_sec)
+        else:
+            enriched_objects = copy.deepcopy(observation['objects'])
 
-        self._prune_candidates(now_sec)
         latency_s = time.monotonic() - start
         vram = self._vram_snapshot()
         self._warn_if_over_vram_budget(vram)
         payload = {
-            'has_text_object': observation['has_text_object'],
+            'task_mode': task_mode,
+            'has_text_object': observation.get('has_text_object', False),
             'objects': enriched_objects,
             'control_summary_ko': observation['control_summary_ko'],
             'need_human_check': observation['need_human_check'],
-            'annotations': [self._candidate_to_dict(c) for c in self._candidates],
+            'annotations': [] if task_mode == 'scene_description' else [self._candidate_to_dict(c) for c in self._candidates],
             'metadata': {
                 'source_stamp': self._stamp_dict(job.stamp),
                 'source_frame': job.frame_id,
@@ -319,6 +371,8 @@ class SemanticVlmNode(Node):
                 'vram': vram,
             },
         }
+        if task_mode == 'scene_description':
+            payload['scene_description_ko'] = observation['scene_description_ko']
         if bool(self.get_parameter('publish_raw_vlm_output').value):
             payload['raw_vlm_output'] = raw
 
@@ -326,8 +380,11 @@ class SemanticVlmNode(Node):
         msg.data = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
         self._pub_json.publish(msg)
         self._pub_markers.publish(self._make_markers(job.stamp))
+        self._pub_image_annotations.publish(
+            self._make_image_annotations(job.stamp, enriched_objects)
+        )
         self.get_logger().info(
-            f'VLM frame={job.seq} objects={len(enriched_objects)} '
+            f'VLM mode={task_mode} frame={job.seq} objects={len(enriched_objects)} '
             f'candidates={len(self._candidates)} latency={latency_s:.2f}s')
 
     def _ensure_model(self) -> None:
@@ -398,12 +455,12 @@ class SemanticVlmNode(Node):
 
         pil_image = PILImage.fromarray(rgb)
         messages = [
-            {'role': 'system', 'content': SYSTEM_PROMPT},
+            {'role': 'system', 'content': self._system_prompt()},
             {
                 'role': 'user',
                 'content': [
                     {'type': 'image', 'image': pil_image},
-                    {'type': 'text', 'text': USER_PROMPT},
+                    {'type': 'text', 'text': self._user_prompt()},
                 ],
             },
         ]
@@ -531,6 +588,85 @@ class SemanticVlmNode(Node):
         if x2 <= x1 or y2 <= y1:
             return None
         return [x1, y1, x2, y2]
+
+    def _validate_scene_description(self, obj: dict, width: int, height: int) -> Optional[dict]:
+        scene_description = obj.get('scene_description_ko')
+        if not isinstance(scene_description, str) or not scene_description.strip():
+            return None
+        objects_raw = obj.get('objects', [])
+        if objects_raw is None:
+            objects_raw = []
+        if not isinstance(objects_raw, list):
+            return None
+
+        valid_objects = []
+        for item in objects_raw:
+            if not isinstance(item, dict):
+                continue
+            label = item.get('label')
+            if not isinstance(label, str) or not label.strip():
+                continue
+            bbox = self._validate_bbox(item.get('bbox_xyxy'), width, height)
+            confidence = str(item.get('confidence', 'low')).strip().lower()
+            if confidence not in CONFIDENCES:
+                confidence = 'low'
+            evidence = item.get('visible_evidence_ko')
+            if not isinstance(evidence, str) or not evidence.strip():
+                evidence = label.strip()
+            valid_objects.append({
+                'label': label.strip(),
+                'bbox_xyxy': bbox,
+                'visible_evidence_ko': evidence.strip(),
+                'confidence': confidence,
+                'pixel_location_ko': self._pixel_location_ko(bbox, width, height),
+            })
+
+        summary = obj.get('control_summary_ko')
+        if not isinstance(summary, str) or not summary.strip():
+            summary = scene_description
+        return {
+            'scene_description_ko': scene_description.strip(),
+            'objects': valid_objects,
+            'control_summary_ko': summary.strip(),
+            'need_human_check': bool(obj.get('need_human_check', False)) or any(
+                o.get('confidence') == 'low' or o.get('bbox_xyxy') is None for o in valid_objects
+            ),
+        }
+
+    @staticmethod
+    def _pixel_location_ko(bbox: Optional[list[int]], width: int, height: int) -> Optional[str]:
+        if bbox is None or width <= 0 or height <= 0:
+            return None
+        x1, y1, x2, y2 = bbox
+        cx = (x1 + x2) * 0.5
+        cy = (y1 + y2) * 0.5
+        hx = cx / float(width)
+        hy = cy / float(height)
+        if hx < 1.0 / 3.0:
+            x_desc = '좌측'
+        elif hx < 2.0 / 3.0:
+            x_desc = '중앙'
+        else:
+            x_desc = '우측'
+        if hy < 1.0 / 3.0:
+            y_desc = '상단'
+        elif hy < 2.0 / 3.0:
+            y_desc = '중단'
+        else:
+            y_desc = '하단'
+        return f'{x_desc} {y_desc} ({x1},{y1})-({x2},{y2})'
+
+    def _system_prompt(self) -> str:
+        task_mode = str(self.get_parameter('task_mode').value).strip().lower()
+        if task_mode == 'scene_description':
+            return SCENE_DESCRIPTION_SYSTEM_PROMPT
+        return TEXT_OBJECT_SYSTEM_PROMPT
+
+    def _user_prompt(self) -> str:
+        task_mode = str(self.get_parameter('task_mode').value).strip().lower()
+        if task_mode == 'scene_description':
+            return SCENE_DESCRIPTION_USER_PROMPT
+        return TEXT_OBJECT_USER_PROMPT
 
     def _position_object(
         self,
@@ -756,6 +892,63 @@ class SemanticVlmNode(Node):
             label.text = f'{status}: {candidate.object_type} {text}'
             markers.markers.append(label)
         return markers
+
+    def _make_image_annotations(self, stamp, objects: list[dict]) -> ImageAnnotations:
+        msg = ImageAnnotations()
+        msg.timestamp = stamp
+
+        for index, obj in enumerate(objects):
+            bbox = obj.get('bbox_xyxy')
+            if not isinstance(bbox, list) or len(bbox) != 4:
+                continue
+
+            x1, y1, x2, y2 = [float(v) for v in bbox]
+            outline = self._annotation_color(str(obj.get('confidence') or 'low'))
+            fill = Color(r=outline.r, g=outline.g, b=outline.b, a=0.10)
+
+            box = PointsAnnotation()
+            box.timestamp = stamp
+            box.type = PointsAnnotation.LINE_LOOP
+            box.points = [
+                Point2(x=x1, y=y1),
+                Point2(x=x2, y=y1),
+                Point2(x=x2, y=y2),
+                Point2(x=x1, y=y2),
+            ]
+            box.outline_color = outline
+            box.fill_color = fill
+            box.thickness = 2.0
+            box.metadata = [
+                KeyValuePair(key='type', value=str(obj.get('type') or 'other')),
+                KeyValuePair(key='confidence', value=str(obj.get('confidence') or 'low')),
+                KeyValuePair(key='failure_reason', value=str(obj.get('failure_reason') or 'unknown')),
+            ]
+            msg.points.append(box)
+
+            label_text = (
+                obj.get('text')
+                or obj.get('label')
+                or f"{obj.get('type', 'text')} ({obj.get('confidence', 'low')})"
+            )
+            label = TextAnnotation()
+            label.timestamp = stamp
+            label.position = Point2(x=x1, y=max(0.0, y1 - 6.0))
+            label.text = str(label_text)
+            label.font_size = 14.0
+            label.text_color = Color(r=1.0, g=1.0, b=1.0, a=1.0)
+            label.background_color = Color(r=0.0, g=0.0, b=0.0, a=0.65)
+            label.metadata = [KeyValuePair(key='index', value=str(index))]
+            msg.texts.append(label)
+
+        return msg
+
+    @staticmethod
+    def _annotation_color(confidence: str) -> Color:
+        if confidence == 'high':
+            return Color(r=0.10, g=0.90, b=0.20, a=1.0)
+        if confidence == 'medium':
+            return Color(r=1.00, g=0.75, b=0.10, a=1.0)
+        return Color(r=0.95, g=0.25, b=0.25, a=1.0)
 
     def _candidate_to_dict(self, candidate: SemanticCandidate) -> dict:
         return {

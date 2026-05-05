@@ -63,16 +63,20 @@ def _launch(context, *_args, **_kwargs):
     use_vggt_slam = LaunchConfiguration('use_vggt_slam').perform(context).lower() == 'true'
     use_semantic_vlm = LaunchConfiguration('use_semantic_vlm').perform(context).lower() == 'true'
     use_elevator = LaunchConfiguration('use_elevator').perform(context).lower() == 'true'
+    use_explore = LaunchConfiguration('use_explore').perform(context).lower() == 'true'
     robot_model = LaunchConfiguration('robot_model').perform(context).strip() or 'robot'
     direct_depth = LaunchConfiguration('direct_depth').perform(context).lower() == 'true'
 
     nvblox_available = _package_available('nvblox_ros')
     foxglove_available = _package_available('foxglove_bridge')
     image_transport_available = _package_available('image_transport')
+    explore_available = _package_available('explore_lite')
     if use_nvblox and not nvblox_available:
         use_nvblox = False
     if foxglove and not foxglove_available:
         foxglove = False
+    if use_explore and not explore_available:
+        use_explore = False
 
     # 카메라 z height (TF용) — robot_model에 따라 달라짐.
     #   'robot'      → 0.50m (mono RGB)
@@ -231,7 +235,10 @@ def _launch(context, *_args, **_kwargs):
     )
 
     # ── Nav2 (navigation only — map comes from SLAM) ────────────────────────
-    nav2_params = os.path.join(pkg, 'config', 'nav2_params.yaml')
+    if robot_model == 'robot_d456':
+        nav2_params = os.path.join(pkg, 'config', 'nav2_params_d456.yaml')
+    else:
+        nav2_params = os.path.join(pkg, 'config', 'nav2_params.yaml')
     if not os.path.exists(nav2_params):
         nav2_params = os.path.join(nav2_pkg, 'params', 'nav2_params.yaml')
 
@@ -297,6 +304,7 @@ def _launch(context, *_args, **_kwargs):
             'camera_info_topic': vlm_camera_info_topic,
             'detections_topic': '/semantic_vlm/detections',
             'markers_topic': '/semantic_vlm/markers',
+            'task_mode': LaunchConfiguration('vlm_task_mode'),
             'model_name': LaunchConfiguration('vlm_model'),
             'device': LaunchConfiguration('vlm_device'),
             'frame_interval': ParameterValue(
@@ -310,6 +318,37 @@ def _launch(context, *_args, **_kwargs):
             'confirm_min_observations': 3,
             'confirm_window_s': 120.0,
             'match_radius_m': 1.0,
+        }],
+    )
+
+    pointcloud_visualizer_node = Node(
+        package='gz_nav_sim',
+        executable='pointcloud_visualizer_node.py',
+        name='pointcloud_visualizer_node',
+        output='screen',
+        parameters=[{
+            'input_topic': '/camera/points',
+            'output_topic': '/camera/points_visual',
+            'max_rate_hz': 1.0,
+            'stride': 10,
+            'max_points': 8000,
+            'voxel_size_m': 0.15,
+        }],
+    )
+
+    trajectory_path_node = Node(
+        package='gz_nav_sim',
+        executable='trajectory_path_node.py',
+        name='trajectory_path_node',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'odom_topic': '/odom',
+            'path_topic': '/trajectory',
+            'target_frame': 'map',
+            'max_poses': 2000,
+            'min_translation_m': 0.05,
+            'min_rotation_rad': 0.05,
         }],
     )
 
@@ -406,6 +445,8 @@ def _launch(context, *_args, **_kwargs):
         slam,
         slam_configure,
         slam_activate,
+        pointcloud_visualizer_node,
+        trajectory_path_node,
         nav2_container,
         navigation,
     ])
@@ -440,9 +481,10 @@ def _launch(context, *_args, **_kwargs):
             }],
             output='screen',
         ))
-        if image_transport_available:
-            # raw → compressed republisher: Foxglove에서 대역폭 작은 압축 이미지 사용 가능.
-            # vggt_slam_bridge도 /camera/image_raw/compressed를 input으로 기대함.
+        if image_transport_available and (use_vggt_slam or robot_model == 'robot'):
+            # D456 Gazebo camera already publishes /camera/image_raw/compressed.
+            # Keep the extra republisher only for the mono-RGB robot or when
+            # VGGT-SLAM explicitly depends on this topic path.
             launch_actions.append(Node(
                 package='image_transport', executable='republish',
                 name='image_compressor',
@@ -454,9 +496,37 @@ def _launch(context, *_args, **_kwargs):
                 output='log',
             ))
         else:
-            launch_actions.append(LogInfo(msg='[sim_nav] image_transport not found; skipping compressed image republisher'))
+            launch_actions.append(LogInfo(
+                msg='[sim_nav] skipping compressed image republisher '
+                    '(D456 already publishes compressed image or image_transport unavailable)'
+            ))
     elif LaunchConfiguration('use_foxglove').perform(context).lower() == 'true':
         launch_actions.append(LogInfo(msg='[sim_nav] foxglove_bridge not found; continuing without Foxglove'))
+    if use_explore:
+        # Legacy frontier exploration stack: wait until Nav2 is active, then start
+        # explore_lite against the SLAM /map topic.
+        launch_actions.append(ExecuteProcess(
+            cmd=[
+                'bash', '-lc',
+                'source /opt/ros/humble/setup.bash && '
+                'if [ -f /home/fnhid/lingbot-real-orc/install/explore_lite_msgs/share/explore_lite_msgs/package.bash ]; then '
+                'source /home/fnhid/lingbot-real-orc/install/explore_lite_msgs/share/explore_lite_msgs/package.bash; fi && '
+                'if [ -f /home/fnhid/lingbot-real-orc/install/explore_lite/share/explore_lite/package.bash ]; then '
+                'source /home/fnhid/lingbot-real-orc/install/explore_lite/share/explore_lite/package.bash; fi && '
+                'for i in $(seq 1 30); do '
+                'STATE=$(ros2 lifecycle get /bt_navigator 2>/dev/null | head -1 || true); '
+                'if echo "$STATE" | grep -q "active"; then '
+                'echo "[sim_nav] starting explore_lite"; '
+                'exec ros2 launch explore_lite explore.launch.py use_sim_time:=true; '
+                'fi; '
+                'sleep 2; '
+                'done; '
+                'echo "[sim_nav] explore_lite start skipped: bt_navigator not active in time"; '
+            ],
+            output='screen',
+        ))
+    elif LaunchConfiguration('use_explore').perform(context).lower() == 'true':
+        launch_actions.append(LogInfo(msg='[sim_nav] explore_lite not found; continuing without auto exploration'))
     return launch_actions
 
 
@@ -468,6 +538,9 @@ def generate_launch_description():
         DeclareLaunchArgument('use_nvblox', default_value='false', description='nvblox 3D mapping 노드 (isaac_ros_nvblox 필요)'),
         DeclareLaunchArgument('use_vggt_slam', default_value='false', description='VGGT-SLAM 브리지 (Python 3.11 venv 서버 spawn)'),
         DeclareLaunchArgument('use_semantic_vlm', default_value='true', description='RGB-D 기반 semantic VLM 노드'),
+        DeclareLaunchArgument('use_explore', default_value='false', description='Legacy frontier exploration (explore_lite) 자동 시작'),
+        DeclareLaunchArgument('vlm_task_mode', default_value='scene_description',
+                              description='semantic VLM mode: scene_description|text_objects'),
         DeclareLaunchArgument('vlm_model', default_value='Qwen/Qwen2.5-VL-3B-Instruct',
                               description='VLM model id'),
         DeclareLaunchArgument('vlm_device', default_value='auto',
