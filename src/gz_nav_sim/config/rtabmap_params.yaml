@@ -1,0 +1,59 @@
+rtabmap:
+  ros__parameters:
+    # ── 좌표계 ────────────────────────────────────────────────────────
+    frame_id: base_link            # 로봇 본체 프레임 (sim_nav 정적 TF)
+    map_frame_id: map              # 글로벌 맵 프레임
+    odom_frame_id: odom            # /odom 프레임 (gazebo_ros_diff_drive 발행)
+    publish_tf: true               # map → odom TF 발행 (Nav2가 의존)
+
+    # ── 입력 모드 (RGB-D + LiDAR 보조) ────────────────────────────────
+    subscribe_rgbd: false          # rgbd_image 메시지 사용 안 함
+    subscribe_depth: true          # depth/image 직접 구독
+    subscribe_rgb: true
+    subscribe_scan: true           # /scan 보조 입력 (proximity)
+    approx_sync: true              # Gazebo 토픽 stamp 미세 차이 허용
+    queue_size: 30
+    sync_queue_size: 30
+    use_sim_time: true
+
+    # ── 멀티세션 / DB ────────────────────────────────────────────────
+    # database_path 는 launch에서 floor 별 경로 인자로 override.
+    # 빈 문자열이면 기본 ~/.ros/rtabmap.db 사용 (자동 append).
+    database_path: ""
+    Mem/IncrementalMemory: "true"      # mapping 모드 (false=localization)
+    Mem/InitWMWithAllNodes: "true"     # DB 로드 시 전체 노드 워킹메모리에
+    Rtabmap/StartNewMapOnLoopClosure: "true"
+    Rtabmap/DetectionRate: "1.0"       # Hz, 키프레임 후보 검사 주기
+    Rtabmap/CreateIntermediateNodes: "true"
+
+    # ── 그래프 최적화 ────────────────────────────────────────────────
+    Optimizer/Strategy: "1"            # 0=TORO 1=g2o 2=GTSAM 3=Ceres
+    Optimizer/Iterations: "20"
+    RGBD/OptimizeFromGraphEnd: "false" # map→odom 안정 (Nav2용)
+    RGBD/AngularUpdate: "0.05"
+    RGBD/LinearUpdate: "0.05"
+    RGBD/ProximityBySpace: "true"      # /scan 으로 근접 매칭
+    RGBD/ProximityMaxGraphDepth: "50"
+
+    # ── Loop Closure (visual BoW) ────────────────────────────────────
+    Kp/MaxFeatures: "500"
+    Kp/DetectorStrategy: "6"           # 6=GFTT/BRIEF (DBoW2), CPU만으로 동작
+    Vis/MinInliers: "15"
+    Vis/EstimationType: "1"            # 1=PnP RANSAC
+
+    # ── 2D occupancy grid 출력 (Nav2 입력) ───────────────────────────
+    Grid/Sensor: "0"                   # 0=2D LiDAR, 1=depth, 2=both
+    Grid/RangeMax: "10.0"
+    Grid/CellSize: "0.05"
+    Grid/3D: "false"                   # 2D occupancy (Nav2용)
+    Grid/RayTracing: "true"
+    Grid/FootprintHeight: "0.4"
+
+    # ── 3D 클라우드 출력 (시각화/저장용) ─────────────────────────────
+    cloud_subsample: 4
+    cloud_decimation: 2
+    cloud_max_depth: 6.0
+    cloud_voxel_size: 0.03
+
+# rgbd_odometry 는 simulation 의 /odom 을 신뢰해 사용 안 함.
+# Gazebo wheel odom 이 충분히 정확하므로 visual odom 비활성.

@@ -62,6 +62,10 @@ def _launch(context, *_args, **_kwargs):
     use_nvblox = LaunchConfiguration('use_nvblox').perform(context).lower() == 'true'
     use_vggt_slam = LaunchConfiguration('use_vggt_slam').perform(context).lower() == 'true'
     use_semantic_vlm = LaunchConfiguration('use_semantic_vlm').perform(context).lower() == 'true'
+    use_slam_toolbox = LaunchConfiguration('use_slam_toolbox').perform(context).lower() == 'true'
+    use_rtabmap = LaunchConfiguration('use_rtabmap').perform(context).lower() == 'true'
+    rtabmap_localization = LaunchConfiguration('rtabmap_localization').perform(context).lower() == 'true'
+    rtabmap_db = LaunchConfiguration('rtabmap_db').perform(context).strip()
     use_elevator = LaunchConfiguration('use_elevator').perform(context).lower() == 'true'
     use_explore = LaunchConfiguration('use_explore').perform(context).lower() == 'true'
     robot_model = LaunchConfiguration('robot_model').perform(context).strip() or 'robot'
@@ -77,6 +81,10 @@ def _launch(context, *_args, **_kwargs):
         foxglove = False
     if use_explore and not explore_available:
         use_explore = False
+    if use_rtabmap and use_slam_toolbox:
+        raise RuntimeError(
+            'use_rtabmap=true와 use_slam_toolbox=true는 동시 사용 불가 — '
+            '한 백엔드만 map→odom TF를 발행해야 함.')
 
     # 카메라 z height (TF용) — robot_model에 따라 달라짐.
     #   'robot'      → 0.50m (mono RGB)
@@ -385,7 +393,46 @@ def _launch(context, *_args, **_kwargs):
         executable='elevator_teleport.py',
         name='elevator_teleport',
         output='screen',
-        parameters=[{'use_sim_time': True, 'robot_model': robot_model}],
+        parameters=[{
+            'use_sim_time': True,
+            'robot_model': robot_model,
+            # rtabmap 사용 시 .db swap, 아니면 slam_toolbox 라이프사이클 fresh restart.
+            'slam_backend': 'rtabmap' if use_rtabmap else 'slam_toolbox',
+        }],
+    )
+
+    # ── RTAB-Map (RGB-D SLAM, multi-session via .db) ────────────────────────
+    # D456 model: RGB는 /camera/image_raw, depth는 /d456/depth/image_raw 로
+    # 분리되어 있으므로 양쪽 다 remap. /scan 은 보조 proximity 입력.
+    # `direct_depth` 와 `robot_model` 가 제대로 세팅된 d456 프리셋 가정.
+    rtabmap_params = os.path.join(pkg, 'config', 'rtabmap_params.yaml')
+    # 빈 문자열이면 RTAB-Map 이 in-memory 모드(저장 안 됨) — 기본 경로로 폴백.
+    rtabmap_db_path = rtabmap_db or os.path.expanduser('~/.ros/rtabmap.db')
+    rtabmap_overrides = {
+        'use_sim_time': True,
+        'database_path': rtabmap_db_path,
+        'Mem/IncrementalMemory': 'false' if rtabmap_localization else 'true',
+    }
+    rtabmap_node = Node(
+        package='rtabmap_slam',
+        executable='rtabmap',
+        name='rtabmap',
+        namespace='rtabmap',
+        output='screen',
+        parameters=[rtabmap_params, rtabmap_overrides],
+        remappings=[
+            ('rgb/image',         '/camera/image_raw'),
+            ('rgb/camera_info',   '/camera/camera_info'),
+            ('depth/image',       '/d456/depth/image_raw'),
+            ('scan',              '/scan'),
+            ('odom',              '/odom'),
+            # Nav2 가 구독하는 /map 으로 grid_map 노출 (rtabmap_ros 기본:
+            # /rtabmap/grid_map). Nav2 의 nav2_params.yaml 이 /map 을 기대.
+            ('grid_map',          '/map'),
+        ],
+        # rtabmap 은 시작 시 DB 가 있으면 자동 append, 없으면 새로 생성.
+        # `--delete_db_on_start` 인자 미지정 → 멀티세션 자연스럽게 동작.
+        arguments=['--ros-args', '--log-level', 'rtabmap:=info'],
     )
 
     # nvblox depth 입력 분기:
@@ -442,11 +489,15 @@ def _launch(context, *_args, **_kwargs):
         base_footprint_tf,
         front_camera_frame_tf,
         front_camera_optical_tf,
-        slam,
-        slam_configure,
-        slam_activate,
         pointcloud_visualizer_node,
         trajectory_path_node,
+    ])
+    if use_slam_toolbox:
+        launch_actions.extend([slam, slam_configure, slam_activate])
+    if use_rtabmap:
+        # Gazebo 카메라/라이다가 첫 프레임 publish 한 뒤 띄워야 sync timeout 회피.
+        launch_actions.append(TimerAction(period=4.0, actions=[rtabmap_node]))
+    launch_actions.extend([
         nav2_container,
         navigation,
     ])
@@ -549,6 +600,14 @@ def generate_launch_description():
                               description='Run one VLM inference every N RGB frames'),
         DeclareLaunchArgument('vlm_max_new_tokens', default_value='256',
                               description='Maximum VLM output tokens'),
+        DeclareLaunchArgument('use_slam_toolbox', default_value='true',
+                              description='2D LiDAR slam_toolbox 활성화. use_rtabmap=true 면 false 로 둘 것.'),
+        DeclareLaunchArgument('use_rtabmap', default_value='false',
+                              description='RTAB-Map RGB-D SLAM (멀티세션, .db 영속). slam_toolbox 와 배타.'),
+        DeclareLaunchArgument('rtabmap_localization', default_value='false',
+                              description='True면 Mem/IncrementalMemory=false (기존 .db 위 로컬라이제이션 전용 모드).'),
+        DeclareLaunchArgument('rtabmap_db', default_value='',
+                              description='RTAB-Map .db 파일 경로 override. 비어 있으면 ~/.ros/rtabmap.db 자동.'),
         DeclareLaunchArgument('use_elevator', default_value='true', description='엘리베이터 텔레포트 노드'),
         DeclareLaunchArgument('robot_model', default_value='robot_d456',
                               description='Robot 모델 디렉토리. "robot"(mono RGB 0.5m) | "robot_d456"(D456 depth+RGB 0.8m)'),
