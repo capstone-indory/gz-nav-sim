@@ -192,33 +192,59 @@ if [[ $WANT_ADAPTER == 1 ]]; then
     echo "[boot] adapter pid=$ADAPTER_PID (log: $LOG_DIR/adapter.log)"
 
     echo -n "[boot] waiting for adapter :8000..."
-    for _ in {1..30}; do
+    for _ in {1..60}; do
         if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
             echo " ready"; break
+        fi
+        if ! kill -0 "$ADAPTER_PID" 2>/dev/null; then
+            echo ""; echo "[err] adapter process died — see $LOG_DIR/adapter.log"
+            tail -20 "$LOG_DIR/adapter.log" 2>/dev/null
+            exit 1
         fi
         echo -n "."
         sleep 1
     done
+    if ! curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+        echo ""; echo "[err] adapter not responsive after 60s"; exit 1
+    fi
 fi
 
 # ── Spring Boot 백엔드 (:8080) ────────────────────────────────────────
 if [[ $WANT_BACKEND == 1 ]]; then
     echo "[boot] starting Spring Boot backend..."
-    # indoory.bridge.enabled=true 로 어댑터 호출 활성화.
+    # 백엔드는 application.yml 이 datasource 안 잡아주므로 env 로 주입.
+    # 1) indoory.bridge.* 어댑터 호출 활성화
+    # 2) spring.datasource.* 로컬 postgres 연결
+    # 3) jpa.hibernate.ddl-auto=update 로 신규 컬럼(rtabmap_db) 자동 반영
+    BACKEND_JSON='{
+      "indoory.bridge.enabled": true,
+      "indoory.bridge.baseUrl": "http://localhost:8000",
+      "spring.datasource.url": "jdbc:postgresql://localhost:5432/indoory",
+      "spring.datasource.username": "indoory",
+      "spring.datasource.password": "indoory",
+      "spring.datasource.driver-class-name": "org.postgresql.Driver",
+      "spring.jpa.hibernate.ddl-auto": "update",
+      "spring.jpa.properties.hibernate.dialect": "org.hibernate.dialect.PostgreSQLDialect"
+    }'
     setsid bash -c "cd $ROOT/indoors-web/backend && \
-        SPRING_APPLICATION_JSON='{\"indoory.bridge.enabled\":true,\"indoory.bridge.baseUrl\":\"http://localhost:8000\"}' \
+        SPRING_APPLICATION_JSON='$(echo "$BACKEND_JSON" | tr -d '\n')' \
         exec ./gradlew bootRun --console=plain" \
         >"$LOG_DIR/backend.log" 2>&1 &
     BACKEND_PID=$!
     PIDS+=( "$BACKEND_PID" ); NAMES[$BACKEND_PID]="backend"
     echo "[boot] backend pid=$BACKEND_PID (log: $LOG_DIR/backend.log)"
 
-    echo -n "[boot] waiting for backend :8080..."
-    for _ in {1..120}; do
+    echo -n "[boot] waiting for backend :8080 (gradle bootRun, 첫 빌드 1~2분)..."
+    for _ in {1..240}; do
         if curl -sf http://localhost:8080/actuator/health >/dev/null 2>&1 \
-                || curl -sf http://localhost:8080/api/maps -o /dev/null \
-                    -w "%{http_code}" 2>/dev/null | grep -qE '200|401'; then
+                || curl -s -o /dev/null -w "%{http_code}" \
+                    http://localhost:8080/api/maps 2>/dev/null | grep -qE '200|401'; then
             echo " ready"; break
+        fi
+        if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+            echo ""; echo "[err] backend process died — see $LOG_DIR/backend.log"
+            tail -30 "$LOG_DIR/backend.log" 2>/dev/null
+            exit 1
         fi
         echo -n "."
         sleep 1
@@ -228,18 +254,21 @@ fi
 # ── 프론트엔드 dev (:5173) ─────────────────────────────────────────────
 if [[ $WANT_FRONTEND == 1 ]]; then
     if ! command -v npm >/dev/null 2>&1; then
-        echo "[warn] npm 없음 — 프론트엔드 skip. 필요하면 nodejs 설치 후 'cd indoors-web/frontend && npm run dev'"
-    else
-        echo "[boot] starting frontend dev..."
-        if [[ ! -d $ROOT/indoors-web/frontend/node_modules ]]; then
-            (cd "$ROOT/indoors-web/frontend" && npm install) >>"$LOG_DIR/frontend.log" 2>&1
-        fi
-        setsid bash -c "cd $ROOT/indoors-web/frontend && exec npm run dev -- --host 0.0.0.0" \
-            >>"$LOG_DIR/frontend.log" 2>&1 &
-        FRONT_PID=$!
-        PIDS+=( "$FRONT_PID" ); NAMES[$FRONT_PID]="frontend"
-        echo "[boot] frontend pid=$FRONT_PID (log: $LOG_DIR/frontend.log)"
+        echo "[boot] npm 없음 — nodejs 설치 (apt nodejs+npm)..."
+        apt-get install -y nodejs npm >>"$LOG_DIR/frontend.log" 2>&1 \
+            || { echo "[warn] nodejs 설치 실패 — 프론트엔드 skip"; WANT_FRONTEND=0; }
     fi
+fi
+if [[ $WANT_FRONTEND == 1 ]]; then
+    echo "[boot] starting frontend dev..."
+    if [[ ! -d $ROOT/indoors-web/frontend/node_modules ]]; then
+        (cd "$ROOT/indoors-web/frontend" && npm install) >>"$LOG_DIR/frontend.log" 2>&1
+    fi
+    setsid bash -c "cd $ROOT/indoors-web/frontend && exec npm run dev -- --host 0.0.0.0" \
+        >>"$LOG_DIR/frontend.log" 2>&1 &
+    FRONT_PID=$!
+    PIDS+=( "$FRONT_PID" ); NAMES[$FRONT_PID]="frontend"
+    echo "[boot] frontend pid=$FRONT_PID (log: $LOG_DIR/frontend.log)"
 fi
 
 # ── 살아있는 동안 안내 + 자식 모니터 ──────────────────────────────────
