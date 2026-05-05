@@ -1,10 +1,10 @@
-"""nvblox 3D mapping node — DA3 depth + Gazebo RGB 입력.
+"""nvblox 3D mapping node — RGB-D depth + Gazebo RGB input.
 
 분리된 include용 런치. sim_nav.launch.py에서 use_nvblox:=true로 포함.
 
-입력 토픽 (DA3 노드가 퍼블리시):
-  /camera/depth/image_raw     sensor_msgs/Image (32FC1, frame=camera_optical_frame)
-  /camera/depth/camera_info   sensor_msgs/CameraInfo
+입력 토픽:
+  /d456/depth/image_raw       sensor_msgs/Image (D456 native depth)
+  /d456/depth/camera_info     sensor_msgs/CameraInfo
   /camera/image_raw           sensor_msgs/Image (Gazebo RGB)
   /camera/camera_info         sensor_msgs/CameraInfo
 

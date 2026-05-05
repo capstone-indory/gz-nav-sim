@@ -8,6 +8,7 @@ install(PROGRAMS
   scripts/elevator_teleport.py
   scripts/merge_worlds.py
   scripts/nvblox_mesh_to_gltf.py
+  scripts/semantic_vlm_node.py
   scripts/vggt_slam_bridge.py
   scripts/vggt_slam_server.py
   DESTINATION lib/${PROJECT_NAME}

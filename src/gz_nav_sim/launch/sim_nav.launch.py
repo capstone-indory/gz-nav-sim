@@ -11,7 +11,7 @@ SLAM이 자동으로 map→odom TF와 /map 토픽을 제공합니다. 초기 포
 
 import os
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import PackageNotFoundError, get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, EmitEvent,
                             ExecuteProcess, IncludeLaunchDescription,
@@ -23,6 +23,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.event_handlers import OnStateTransition
 from launch_ros.events.lifecycle import ChangeState
+from launch_ros.parameter_descriptions import ParameterValue
 from lifecycle_msgs.msg import Transition
 
 
@@ -42,6 +43,14 @@ def _optional_launch_arg(context, name: str, cast=None):
     return cast(value) if cast is not None else value
 
 
+def _package_available(name: str) -> bool:
+    try:
+        get_package_prefix(name)
+        return True
+    except PackageNotFoundError:
+        return False
+
+
 def _launch(context, *_args, **_kwargs):
     pkg      = get_package_share_directory('gz_nav_sim')
     nav2_pkg = get_package_share_directory('nav2_bringup')
@@ -52,9 +61,18 @@ def _launch(context, *_args, **_kwargs):
     use_da3  = LaunchConfiguration('use_da3').perform(context).lower() == 'true'
     use_nvblox = LaunchConfiguration('use_nvblox').perform(context).lower() == 'true'
     use_vggt_slam = LaunchConfiguration('use_vggt_slam').perform(context).lower() == 'true'
+    use_semantic_vlm = LaunchConfiguration('use_semantic_vlm').perform(context).lower() == 'true'
     use_elevator = LaunchConfiguration('use_elevator').perform(context).lower() == 'true'
     robot_model = LaunchConfiguration('robot_model').perform(context).strip() or 'robot'
     direct_depth = LaunchConfiguration('direct_depth').perform(context).lower() == 'true'
+
+    nvblox_available = _package_available('nvblox_ros')
+    foxglove_available = _package_available('foxglove_bridge')
+    image_transport_available = _package_available('image_transport')
+    if use_nvblox and not nvblox_available:
+        use_nvblox = False
+    if foxglove and not foxglove_available:
+        foxglove = False
 
     # 카메라 z height (TF용) — robot_model에 따라 달라짐.
     #   'robot'      → 0.50m (mono RGB)
@@ -172,6 +190,12 @@ def _launch(context, *_args, **_kwargs):
     # ── SLAM Toolbox (online async — fresh map every run) ───────────────────
     slam_params = os.path.join(pkg, 'config', 'slam_params.yaml')
     da3_params = os.path.join(pkg, 'config', 'da3_params.yaml')
+    if direct_depth:
+        vlm_depth_topic = '/d456/depth/image_raw'
+        vlm_camera_info_topic = '/d456/depth/camera_info'
+    else:
+        vlm_depth_topic = '/camera/depth/image_raw'
+        vlm_camera_info_topic = '/camera/camera_info'
 
     slam = LifecycleNode(
         package='slam_toolbox',
@@ -261,6 +285,34 @@ def _launch(context, *_args, **_kwargs):
         parameters=[da3_params, da3_overrides],
     )
 
+    semantic_vlm_node = Node(
+        package='gz_nav_sim',
+        executable='semantic_vlm_node.py',
+        name='semantic_vlm_node',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'image_topic': '/camera/image_raw',
+            'depth_topic': vlm_depth_topic,
+            'camera_info_topic': vlm_camera_info_topic,
+            'detections_topic': '/semantic_vlm/detections',
+            'markers_topic': '/semantic_vlm/markers',
+            'model_name': LaunchConfiguration('vlm_model'),
+            'device': LaunchConfiguration('vlm_device'),
+            'frame_interval': ParameterValue(
+                LaunchConfiguration('vlm_frame_interval'), value_type=int),
+            'max_new_tokens': ParameterValue(
+                LaunchConfiguration('vlm_max_new_tokens'), value_type=int),
+            'crop_requery': False,
+            'vram_budget_mb': 12288.0,
+            'target_frame': 'map',
+            'fallback_target_frame': 'odom',
+            'confirm_min_observations': 3,
+            'confirm_window_s': 120.0,
+            'match_radius_m': 1.0,
+        }],
+    )
+
     # ── VGGT-SLAM bridge (Python 3.10 side) ─────────────────────────────────
     # Heavy SLAM solver runs in a separate Python 3.11 venv process,
     # spawned by the bridge via subprocess. See vggt_slam_server.py.
@@ -294,7 +346,7 @@ def _launch(context, *_args, **_kwargs):
         executable='elevator_teleport.py',
         name='elevator_teleport',
         output='screen',
-        parameters=[{'use_sim_time': True, 'robot_model': 'robot'}],
+        parameters=[{'use_sim_time': True, 'robot_model': robot_model}],
     )
 
     # nvblox depth 입력 분기:
@@ -359,11 +411,18 @@ def _launch(context, *_args, **_kwargs):
     ])
     if use_da3:
         launch_actions.append(da3_node)
+    if use_semantic_vlm:
+        # Camera/depth publishers need a short warm-up before VLM samples frames.
+        launch_actions.append(TimerAction(period=12.0, actions=[semantic_vlm_node]))
+    elif LaunchConfiguration('use_semantic_vlm').perform(context).lower() == 'true':
+        launch_actions.append(LogInfo(msg='[sim_nav] semantic VLM disabled'))
     if use_nvblox:
-        # DA3 depth가 뜬 뒤에 nvblox를 띄워야 첫 프레임 누락이 없음
+        # depth가 뜬 뒤에 nvblox를 띄워야 첫 프레임 누락이 없음
         launch_actions.append(TimerAction(period=8.0, actions=[nvblox_include]))
         # mesh→gltf republisher는 nvblox /mesh 토픽 뜬 뒤
         launch_actions.append(TimerAction(period=10.0, actions=[nvblox_gltf_node]))
+    elif LaunchConfiguration('use_nvblox').perform(context).lower() == 'true':
+        launch_actions.append(LogInfo(msg='[sim_nav] nvblox_ros not found; continuing without nvblox'))
     if use_vggt_slam:
         # VGGT-SLAM은 서버 프로세스를 spawn해야 해서 가제보 sensor가 뜬 후에 시작
         launch_actions.append(TimerAction(period=5.0, actions=[vggt_slam_node]))
@@ -381,18 +440,23 @@ def _launch(context, *_args, **_kwargs):
             }],
             output='screen',
         ))
-        # raw → compressed republisher: Foxglove에서 대역폭 작은 압축 이미지 사용 가능.
-        # vggt_slam_bridge도 /camera/image_raw/compressed를 input으로 기대함.
-        launch_actions.append(Node(
-            package='image_transport', executable='republish',
-            name='image_compressor',
-            arguments=['raw', 'compressed'],
-            remappings=[
-                ('in', '/camera/image_raw'),
-                ('out/compressed', '/camera/image_raw/compressed'),
-            ],
-            output='log',
-        ))
+        if image_transport_available:
+            # raw → compressed republisher: Foxglove에서 대역폭 작은 압축 이미지 사용 가능.
+            # vggt_slam_bridge도 /camera/image_raw/compressed를 input으로 기대함.
+            launch_actions.append(Node(
+                package='image_transport', executable='republish',
+                name='image_compressor',
+                arguments=['raw', 'compressed'],
+                remappings=[
+                    ('in', '/camera/image_raw'),
+                    ('out/compressed', '/camera/image_raw/compressed'),
+                ],
+                output='log',
+            ))
+        else:
+            launch_actions.append(LogInfo(msg='[sim_nav] image_transport not found; skipping compressed image republisher'))
+    elif LaunchConfiguration('use_foxglove').perform(context).lower() == 'true':
+        launch_actions.append(LogInfo(msg='[sim_nav] foxglove_bridge not found; continuing without Foxglove'))
     return launch_actions
 
 
@@ -400,13 +464,22 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('headless',    default_value='false',  description='GUI 없이 실행'),
         DeclareLaunchArgument('use_foxglove',default_value='true',  description='Foxglove 브리지'),
-        DeclareLaunchArgument('use_da3', default_value='true', description='DA3 RGB depth wrapper'),
+        DeclareLaunchArgument('use_da3', default_value='false', description='DA3 RGB depth wrapper'),
         DeclareLaunchArgument('use_nvblox', default_value='false', description='nvblox 3D mapping 노드 (isaac_ros_nvblox 필요)'),
         DeclareLaunchArgument('use_vggt_slam', default_value='false', description='VGGT-SLAM 브리지 (Python 3.11 venv 서버 spawn)'),
+        DeclareLaunchArgument('use_semantic_vlm', default_value='true', description='RGB-D 기반 semantic VLM 노드'),
+        DeclareLaunchArgument('vlm_model', default_value='Qwen/Qwen2.5-VL-3B-Instruct',
+                              description='VLM model id'),
+        DeclareLaunchArgument('vlm_device', default_value='auto',
+                              description='VLM device: auto|cuda|cpu'),
+        DeclareLaunchArgument('vlm_frame_interval', default_value='20',
+                              description='Run one VLM inference every N RGB frames'),
+        DeclareLaunchArgument('vlm_max_new_tokens', default_value='256',
+                              description='Maximum VLM output tokens'),
         DeclareLaunchArgument('use_elevator', default_value='true', description='엘리베이터 텔레포트 노드'),
-        DeclareLaunchArgument('robot_model', default_value='robot',
+        DeclareLaunchArgument('robot_model', default_value='robot_d456',
                               description='Robot 모델 디렉토리. "robot"(mono RGB 0.5m) | "robot_d456"(D456 depth+RGB 0.8m)'),
-        DeclareLaunchArgument('direct_depth', default_value='false',
+        DeclareLaunchArgument('direct_depth', default_value='true',
                               description='True면 D456 native depth(/d456/depth/*)를 nvblox 입력으로 직접 사용. DA3/VGGT 우회.'),
         DeclareLaunchArgument('da3_model_id', default_value='',
                               description='Optional DA3 model override; empty uses YAML'),

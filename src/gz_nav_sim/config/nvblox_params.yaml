@@ -6,7 +6,7 @@
     pose_frame: base_link
     use_tf_transforms: true
 
-    # ── 입력 모드 (DA3 depth + Gazebo RGB) ──────────────────────────────
+    # ── 입력 모드 (D456 RGB-D) ─────────────────────────────────────────
     use_depth: true
     use_color: true
     use_lidar: false
@@ -38,7 +38,8 @@
     mesh_update_rate_hz: 0.2
 
     # ── Update rates ────────────────────────────────────────────────────
-    # DA3는 2Hz 추론이므로 depth rate도 그 수준.
+    # D456 native depth is lighter than feed-forward depth, but keep a modest
+    # cap to avoid overloading Foxglove/nvblox while mapping.
     max_depth_update_hz: 5.0
     max_color_update_hz: 5.0
 
@@ -47,7 +48,7 @@
     maximum_sensor_message_queue_length: 30
 
     # ── QoS ─────────────────────────────────────────────────────────────
-    # DA3 노드가 RELIABLE로 내므로 매칭.
+    # Gazebo camera and nvblox bridge both work with system default QoS here.
     depth_qos: "SYSTEM_DEFAULT"
     color_qos: "SYSTEM_DEFAULT"
 
@@ -56,10 +57,10 @@
     slice_visualization_side_length: 20.0
 
     static_mapper:
-      # ── Depth preprocessing (DA3는 이미 부드러움 → off) ──────────────
+      # ── Depth preprocessing ──────────────────────────────────────────
       do_depth_preprocessing: false
 
-      # ── Integrator — DA3 max range에 맞춘 보수값 ─────────────────────
+      # ── Integrator — D456 max range에 맞춘 보수값 ───────────────────
       projective_integrator_max_integration_distance_m: 20.0
       # truncation 6.0 복구: 얇게 하면 mesh가 끊어져서 안 생김.
       projective_integrator_truncation_distance_vox: 6.0
