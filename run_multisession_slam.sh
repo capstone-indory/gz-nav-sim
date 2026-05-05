@@ -87,24 +87,68 @@ echo "[boot] killing stale ROS/Gazebo if any..."
 pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2_lifecycle_manager|controller_server|component_container|xvfb-run|Xvfb' 2>/dev/null || true
 sleep 1
 
-# ── Postgres ──────────────────────────────────────────────────────────
-if [[ $WANT_POSTGRES == 1 ]]; then
-    if docker compose -f "$ROOT/indoors-web/infra/docker-compose.yml" ps postgres 2>/dev/null \
-            | grep -q running; then
-        echo "[boot] postgres already running"
+# ── Postgres (네이티브) ───────────────────────────────────────────────
+# 도커 의존성 제거: apt 패키지 + service postgresql 로 실행.
+# DB/유저는 indoory:indoory@localhost:5432/indoory (compose 와 동일 자격증명).
+postgres_reachable() {
+    (echo > /dev/tcp/127.0.0.1/5432) >/dev/null 2>&1
+}
+
+_psql_super() {
+    # postgres OS 유저로 psql 실행 (sudo 없는 환경 호환).
+    # postgres 가 cd 못 하는 디렉터리 경고 방지 위해 /tmp 에서 실행.
+    if command -v sudo >/dev/null 2>&1; then
+        (cd /tmp && sudo -u postgres psql "$@")
     else
-        echo "[boot] starting postgres (docker compose)"
-        (cd "$ROOT/indoors-web/infra" && docker compose up -d postgres) \
-            >>"$LOG_DIR/postgres.log" 2>&1
-        # readiness wait
-        for _ in {1..30}; do
-            if docker compose -f "$ROOT/indoors-web/infra/docker-compose.yml" exec -T postgres \
-                    pg_isready -U indoory >/dev/null 2>&1; then
-                break
+        (cd /tmp && su -s /bin/bash postgres -c "psql $(printf '%q ' "$@")")
+    fi
+}
+
+ensure_indoory_db() {
+    # 'indoory' 유저/DB 가 없으면 생성. 멱등.
+    if ! _psql_super -tAc "SELECT 1 FROM pg_roles WHERE rolname='indoory'" 2>/dev/null | grep -q 1; then
+        _psql_super -c "CREATE USER indoory WITH PASSWORD 'indoory';" \
+            >>"$LOG_DIR/postgres.log" 2>&1 || true
+    fi
+    if ! _psql_super -tAc "SELECT 1 FROM pg_database WHERE datname='indoory'" 2>/dev/null | grep -q 1; then
+        _psql_super -c "CREATE DATABASE indoory OWNER indoory;" \
+            >>"$LOG_DIR/postgres.log" 2>&1 || true
+    fi
+}
+
+if [[ $WANT_POSTGRES == 1 ]]; then
+    if postgres_reachable; then
+        echo "[boot] postgres reachable on :5432 — using existing"
+        ensure_indoory_db || true
+    else
+        # 1) 패키지 설치 (없으면)
+        if ! command -v pg_ctlcluster >/dev/null 2>&1 && ! command -v pg_isready >/dev/null 2>&1; then
+            echo "[boot] installing postgresql (apt)..."
+            apt-get install -y postgresql >>"$LOG_DIR/postgres.log" 2>&1 \
+                || { echo "[err] apt install postgresql 실패 — $LOG_DIR/postgres.log"; exit 1; }
+        fi
+        # 2) 서비스 기동 — sysvinit (service) / pg_ctlcluster 모두 시도
+        echo "[boot] starting postgres (native)..."
+        if command -v service >/dev/null 2>&1; then
+            service postgresql start >>"$LOG_DIR/postgres.log" 2>&1 || true
+        fi
+        if ! postgres_reachable && command -v pg_ctlcluster >/dev/null 2>&1; then
+            # cluster 자동 시작
+            cluster=$(pg_lsclusters -h 2>/dev/null | awk 'NR==1 {print $1, $2}')
+            if [[ -n $cluster ]]; then
+                pg_ctlcluster $cluster start >>"$LOG_DIR/postgres.log" 2>&1 || true
             fi
+        fi
+        # 3) readiness wait
+        for _ in {1..30}; do
+            postgres_reachable && break
             sleep 1
         done
+        if ! postgres_reachable; then
+            echo "[err] postgres did not come up — $LOG_DIR/postgres.log 확인"; exit 1
+        fi
         echo "[boot] postgres ready"
+        ensure_indoory_db || true
     fi
 fi
 
@@ -216,5 +260,11 @@ cat <<EOF
 EOF
 
 # 자식 중 누가 죽으면 전체 종료. wait -n 으로 첫 사망 대기.
-wait -n "${PIDS[@]}" 2>/dev/null || true
-echo "[exit] one of the children died — tearing down others"
+# 자식이 없는 경우 (모든 --no-* 옵션) 는 그냥 sleep infinity — Ctrl-C 까지 대기.
+if [[ ${#PIDS[@]} -eq 0 ]]; then
+    echo "[boot] no managed children — sleeping until Ctrl-C"
+    sleep infinity
+else
+    wait -n "${PIDS[@]}" 2>/dev/null || true
+    echo "[exit] one of the children died — tearing down others"
+fi
