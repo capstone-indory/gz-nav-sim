@@ -83,40 +83,37 @@ trap cleanup EXIT INT TERM
 
 # ── 완전 정리: 이전 세션의 모든 좀비 / 고아 프로세스 박멸 ──────────────
 purge_stale() {
-    # 1) 이름 기반 광범위 kill (1차).
-    pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2|controller_server|planner_server|behavior_server|smoother_server|bt_navigator|waypoint_follower|velocity_smoother|component_container|xvfb-run|Xvfb|java.*indoor|java.*IndooryApp|gradle.*bootRun|GradleDaemon|uvicorn|vite|node.*frontend|tf2_ros|static_transform_publisher|image_transport|republish|elevator_teleport|slam_toolbox|nvblox|da3_depth|explore_node|trajectory_path|launch_ros|ros2-daemon|joint_state_publisher|gazebo_ros' 2>/dev/null || true
+    # set -e 가 purge 안에서 죽지 않게 일시 해제.
+    set +e
+    # 1) 이름 기반 광범위 kill.
+    pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2|controller_server|planner_server|behavior_server|smoother_server|bt_navigator|waypoint_follower|velocity_smoother|component_container|xvfb-run|Xvfb|java.*indoor|java.*IndooryApp|gradle.*bootRun|GradleDaemon|uvicorn|vite|node.*frontend|tf2_ros|static_transform_publisher|image_transport|republish|elevator_teleport|slam_toolbox|nvblox|da3_depth|explore_node|trajectory_path|launch_ros|ros2-daemon|joint_state_publisher|gazebo_ros' 2>/dev/null
     sleep 1
-    # 2) /opt/ros/humble/lib 에서 spawn 된 모든 프로세스 (1차에서 못 잡은 것들).
-    #    cmdline 에 /opt/ros 포함하는 PID 모두 SIGKILL.
-    for pid in $(pgrep -f '/opt/ros/humble/lib/' 2>/dev/null); do
-        kill -9 "$pid" 2>/dev/null || true
-    done
-    # 3) PPID=1 로 떨어진 ROS 관련 고아 프로세스 (init 입양된 것들).
-    while read -r pid; do
-        if [[ -n $pid ]] && grep -qE 'ros|rclpy|gazebo|rtabmap|gz_nav_sim' \
-                /proc/$pid/cmdline 2>/dev/null | head -1; then
-            kill -9 "$pid" 2>/dev/null || true
+    # 2) /opt/ros/humble/lib 에서 spawn 된 PID catch-all.
+    pgrep -f '/opt/ros/humble/lib/' 2>/dev/null | xargs -r kill -9 2>/dev/null
+    # 3) PPID=1 로 떨어진 ROS 관련 고아 프로세스.
+    for pid in $(ps -e -o pid=,ppid= 2>/dev/null | awk '$2==1{print $1}'); do
+        cmdline=$(tr -d '\0' < /proc/$pid/cmdline 2>/dev/null)
+        if [[ -n $cmdline ]] && [[ $cmdline =~ (ros|rclpy|gazebo|rtabmap|gz_nav_sim) ]]; then
+            kill -9 "$pid" 2>/dev/null
         fi
-    done < <(ps -e -o pid=,ppid= | awk '$2==1{print $1}')
-    # 4) 포트 점유 프로세스 직접 KILL (8080/8000/5173/8765/11345).
+    done
+    # 4) 포트 점유 프로세스 직접 KILL.
     for port in 8080 8000 5173 8765 11345; do
-        pid=$(ss -lntp 2>/dev/null | awk -v p=":$port" '$0 ~ p {print}' | grep -oP 'pid=\K\d+' | head -1 || true)
-        if [[ -n $pid ]]; then
-            kill -9 "$pid" 2>/dev/null || true
-        fi
+        pid=$(ss -lntp 2>/dev/null | awk -v p=":$port" '$0 ~ p {print}' | grep -oP 'pid=\K\d+' | head -1)
+        [[ -n $pid ]] && kill -9 "$pid" 2>/dev/null
     done
-    # 5) FastDDS shared memory + lockfile 정리 — 안 그러면 좀비 토픽 discovery 잔존.
-    rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* 2>/dev/null || true
-    # 6) ros2 launch 가 만든 임시 param 파일.
-    rm -f /tmp/launch_params_* 2>/dev/null || true
-    # 7) Xvfb lockfile (이전 비정상 종료 시 남음).
-    rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 2>/dev/null || true
+    # 5) FastDDS shared memory + lockfile 정리.
+    rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* 2>/dev/null
+    rm -f /tmp/launch_params_* 2>/dev/null
+    rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 2>/dev/null
     sleep 1
+    # 호출자에서 set -e 유지/해제 결정. 여기서 다시 켜지 않음.
+    return 0
 }
 
 echo "[boot] killing stale ROS/Gazebo if any..."
+set +e   # 검증 블록 동안 pipefail / pgrep 0건 회피
 purge_stale
-# 검증: 남은 ros 관련 프로세스 카운트.
 remaining=$(pgrep -f '/opt/ros/humble/lib/|gzserver|rtabmap|uvicorn|vite|java.*indoor' 2>/dev/null | wc -l)
 if [[ $remaining -gt 0 ]]; then
     echo "[warn] $remaining stale processes still alive after purge — running second pass"
@@ -127,6 +124,7 @@ if [[ $remaining -gt 0 ]]; then
         pgrep -fa '/opt/ros/humble/lib/|gzserver|rtabmap|uvicorn|vite|java.*indoor' 2>/dev/null | head -10
     fi
 fi
+set -e
 
 # ── Postgres (네이티브) ───────────────────────────────────────────────
 # 도커 의존성 제거: apt 패키지 + service postgresql 로 실행.
