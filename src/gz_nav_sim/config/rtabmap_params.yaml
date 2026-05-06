@@ -30,8 +30,11 @@ rtabmap:
     Optimizer/Strategy: "1"            # 0=TORO 1=g2o 2=GTSAM 3=Ceres
     Optimizer/Iterations: "20"
     RGBD/OptimizeFromGraphEnd: "false" # map→odom 안정 (Nav2용)
-    RGBD/AngularUpdate: "0.05"
-    RGBD/LinearUpdate: "0.05"
+    # 0.05 는 너무 작아서 정적 로봇에서도 노이즈로 키프레임 폭증 → Memory.cpp:3473
+    # 'fromS->getWeight() >= 0' assertion fail (UException, exit -6).
+    # 0.2m / 0.2rad 로 키워 의미 있는 이동 시에만 새 노드 추가.
+    RGBD/AngularUpdate: "0.2"
+    RGBD/LinearUpdate: "0.2"
     RGBD/ProximityBySpace: "true"      # /scan 으로 근접 매칭
     RGBD/ProximityMaxGraphDepth: "50"
 
