@@ -71,30 +71,62 @@ cleanup() {
     for pid in "${PIDS[@]}"; do
         if kill -0 "$pid" 2>/dev/null; then
             echo "  kill ${NAMES[$pid]} (pid=$pid, pgid=$(ps -o pgid= "$pid" | tr -d ' '))"
-            # 프로세스 그룹 통째로 종료
             kill -- -"$(ps -o pgid= "$pid" | tr -d ' ')" 2>/dev/null || true
         fi
     done
     sleep 2
-    # 잔존 프로세스 SIGKILL
-    pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2|controller_server|component_container|xvfb-run|Xvfb|java.*indoor|gradle.*bootRun|GradleDaemon|uvicorn|vite|tf2_ros|static_transform_publisher|image_transport.*republish|elevator_teleport|slam_toolbox|nvblox|da3_depth|explore_node|trajectory_path|launch_ros' 2>/dev/null || true
-rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* 2>/dev/null || true
+    # 같은 purge_stale 로 ROS 잔존·orphan·shm·tmp 모두 정리 — 다음 실행이 깨끗.
+    if declare -F purge_stale >/dev/null; then purge_stale; fi
     echo "[exit] done"
 }
 trap cleanup EXIT INT TERM
 
-# ── stale 프로세스 사전 정리 (이전 비정상 종료 대비) ──────────────────
-echo "[boot] killing stale ROS/Gazebo if any..."
-pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2_lifecycle_manager|controller_server|component_container|xvfb-run|Xvfb|java.*indoor|gradle.*bootRun|GradleDaemon|uvicorn|vite' 2>/dev/null || true
-# 8080/8000/5173 점유 프로세스 직접 잡기 (pkill 패턴이 못 잡는 경우 대비)
-for port in 8080 8000 5173; do
-    pid=$(ss -lntp 2>/dev/null | awk -v p=":$port" '$0 ~ p {print}' | grep -oP 'pid=\K\d+' | head -1 || true)
-    if [[ -n $pid ]]; then
+# ── 완전 정리: 이전 세션의 모든 좀비 / 고아 프로세스 박멸 ──────────────
+purge_stale() {
+    # 1) 이름 기반 광범위 kill (1차).
+    pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2|controller_server|planner_server|behavior_server|smoother_server|bt_navigator|waypoint_follower|velocity_smoother|component_container|xvfb-run|Xvfb|java.*indoor|java.*IndooryApp|gradle.*bootRun|GradleDaemon|uvicorn|vite|node.*frontend|tf2_ros|static_transform_publisher|image_transport|republish|elevator_teleport|slam_toolbox|nvblox|da3_depth|explore_node|trajectory_path|launch_ros|ros2-daemon|joint_state_publisher|gazebo_ros' 2>/dev/null || true
+    sleep 1
+    # 2) /opt/ros/humble/lib 에서 spawn 된 모든 프로세스 (1차에서 못 잡은 것들).
+    #    cmdline 에 /opt/ros 포함하는 PID 모두 SIGKILL.
+    for pid in $(pgrep -f '/opt/ros/humble/lib/' 2>/dev/null); do
         kill -9 "$pid" 2>/dev/null || true
+    done
+    # 3) PPID=1 로 떨어진 ROS 관련 고아 프로세스 (init 입양된 것들).
+    while read -r pid; do
+        if [[ -n $pid ]] && grep -qE 'ros|rclpy|gazebo|rtabmap|gz_nav_sim' \
+                /proc/$pid/cmdline 2>/dev/null | head -1; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    done < <(ps -e -o pid=,ppid= | awk '$2==1{print $1}')
+    # 4) 포트 점유 프로세스 직접 KILL (8080/8000/5173/8765/11345).
+    for port in 8080 8000 5173 8765 11345; do
+        pid=$(ss -lntp 2>/dev/null | awk -v p=":$port" '$0 ~ p {print}' | grep -oP 'pid=\K\d+' | head -1 || true)
+        if [[ -n $pid ]]; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    done
+    # 5) FastDDS shared memory + lockfile 정리 — 안 그러면 좀비 토픽 discovery 잔존.
+    rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* 2>/dev/null || true
+    # 6) ros2 launch 가 만든 임시 param 파일.
+    rm -f /tmp/launch_params_* 2>/dev/null || true
+    # 7) Xvfb lockfile (이전 비정상 종료 시 남음).
+    rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 2>/dev/null || true
+    sleep 1
+}
+
+echo "[boot] killing stale ROS/Gazebo if any..."
+purge_stale
+# 검증: 남은 ros 관련 프로세스 카운트.
+remaining=$(pgrep -f '/opt/ros/humble/lib/|gzserver|rtabmap|uvicorn|vite|java.*indoor' 2>/dev/null | wc -l)
+if [[ $remaining -gt 0 ]]; then
+    echo "[warn] $remaining stale processes still alive after purge — running second pass"
+    purge_stale
+    remaining=$(pgrep -f '/opt/ros/humble/lib/|gzserver|rtabmap|uvicorn|vite|java.*indoor' 2>/dev/null | wc -l)
+    if [[ $remaining -gt 0 ]]; then
+        echo "[err] $remaining stubborn processes — listing for manual review:"
+        pgrep -fa '/opt/ros/humble/lib/|gzserver|rtabmap|uvicorn|vite|java.*indoor' 2>/dev/null | head -10
     fi
-done
-sleep 1
-sleep 1
+fi
 
 # ── Postgres (네이티브) ───────────────────────────────────────────────
 # 도커 의존성 제거: apt 패키지 + service postgresql 로 실행.
