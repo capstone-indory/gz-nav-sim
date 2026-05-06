@@ -529,6 +529,19 @@ def _launch(context, *_args, **_kwargs):
                 'max_qos_depth': 5,
                 'send_buffer_limit': 10_000_000,
                 'use_compression': True,
+                # raw 카메라/depth 는 12 MB/s × 채널 → loopback 폭주.
+                # 화이트리스트로 가벼운 토픽만 advertise. raw 보고 싶으면
+                # /camera/image_raw 직접 추가하거나 use_compressed_topic 활용.
+                'topic_whitelist': [
+                    '/odom', '/scan', '/map', '/tf', '/tf_static', '/clock',
+                    '/cmd_vel', '/cmd_vel_nav', '/cmd_vel_teleop',
+                    '/camera/image_raw/compressed', '/camera/camera_info',
+                    '/rtabmap/cloud_map', '/rtabmap/grid_map',
+                    '/rtabmap/info', '/rtabmap/mapData',
+                    '/local_costmap/costmap', '/global_costmap/costmap',
+                    '/plan', '/plan_smoothed', '/local_plan',
+                    '/gazebo/model_states', '/gazebo/link_states',
+                ],
             }],
             output='screen',
         ))
