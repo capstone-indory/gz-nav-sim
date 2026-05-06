@@ -77,14 +77,22 @@ cleanup() {
     done
     sleep 2
     # 잔존 프로세스 SIGKILL
-    pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2|controller_server|component_container|xvfb-run|Xvfb' 2>/dev/null || true
+    pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2|controller_server|component_container|xvfb-run|Xvfb|java.*indoor|gradle.*bootRun|GradleDaemon|uvicorn|vite' 2>/dev/null || true
     echo "[exit] done"
 }
 trap cleanup EXIT INT TERM
 
 # ── stale 프로세스 사전 정리 (이전 비정상 종료 대비) ──────────────────
 echo "[boot] killing stale ROS/Gazebo if any..."
-pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2_lifecycle_manager|controller_server|component_container|xvfb-run|Xvfb' 2>/dev/null || true
+pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2_lifecycle_manager|controller_server|component_container|xvfb-run|Xvfb|java.*indoor|gradle.*bootRun|GradleDaemon|uvicorn|vite' 2>/dev/null || true
+# 8080/8000/5173 점유 프로세스 직접 잡기 (pkill 패턴이 못 잡는 경우 대비)
+for port in 8080 8000 5173; do
+    pid=$(ss -lntp 2>/dev/null | awk -v p=":$port" '$0 ~ p {print}' | grep -oP 'pid=\K\d+' | head -1 || true)
+    if [[ -n $pid ]]; then
+        kill -9 "$pid" 2>/dev/null || true
+    fi
+done
+sleep 1
 sleep 1
 
 # ── Postgres (네이티브) ───────────────────────────────────────────────
@@ -192,9 +200,11 @@ if [[ $WANT_ADAPTER == 1 ]]; then
     echo "[boot] adapter pid=$ADAPTER_PID (log: $LOG_DIR/adapter.log)"
 
     echo -n "[boot] waiting for adapter :8000..."
+    ADAPTER_READY=0
     for _ in {1..60}; do
-        if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
-            echo " ready"; break
+        if kill -0 "$ADAPTER_PID" 2>/dev/null \
+                && curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+            echo " ready"; ADAPTER_READY=1; break
         fi
         if ! kill -0 "$ADAPTER_PID" 2>/dev/null; then
             echo ""; echo "[err] adapter process died — see $LOG_DIR/adapter.log"
@@ -204,7 +214,7 @@ if [[ $WANT_ADAPTER == 1 ]]; then
         echo -n "."
         sleep 1
     done
-    if ! curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+    if [[ $ADAPTER_READY != 1 ]]; then
         echo ""; echo "[err] adapter not responsive after 60s"; exit 1
     fi
 fi
@@ -235,20 +245,29 @@ if [[ $WANT_BACKEND == 1 ]]; then
     echo "[boot] backend pid=$BACKEND_PID (log: $LOG_DIR/backend.log)"
 
     echo -n "[boot] waiting for backend :8080 (gradle bootRun, 첫 빌드 1~2분)..."
+    BACKEND_READY=0
     for _ in {1..240}; do
-        if curl -sf http://localhost:8080/actuator/health >/dev/null 2>&1 \
-                || curl -s -o /dev/null -w "%{http_code}" \
-                    http://localhost:8080/api/maps 2>/dev/null | grep -qE '200|401'; then
-            echo " ready"; break
+        # 우리가 띄운 자식 PID 가 살아있고, 8080 이 응답해야 진짜 ready.
+        # 자식이 죽었는데 8080 이 응답하면 그건 stale process.
+        if kill -0 "$BACKEND_PID" 2>/dev/null && \
+                (curl -sf http://localhost:8080/actuator/health >/dev/null 2>&1 \
+                 || curl -s -o /dev/null -w "%{http_code}" \
+                        http://localhost:8080/api/maps 2>/dev/null | grep -qE '200|401'); then
+            echo " ready"; BACKEND_READY=1; break
         fi
         if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
             echo ""; echo "[err] backend process died — see $LOG_DIR/backend.log"
-            tail -30 "$LOG_DIR/backend.log" 2>/dev/null
+            tail -40 "$LOG_DIR/backend.log" 2>/dev/null
             exit 1
         fi
         echo -n "."
         sleep 1
     done
+    if [[ $BACKEND_READY != 1 ]]; then
+        echo ""; echo "[err] backend not ready after 240s"
+        tail -40 "$LOG_DIR/backend.log" 2>/dev/null
+        exit 1
+    fi
 fi
 
 # ── 프론트엔드 dev (:5173) ─────────────────────────────────────────────
