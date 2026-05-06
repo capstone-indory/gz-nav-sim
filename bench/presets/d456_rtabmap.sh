@@ -11,7 +11,9 @@ LAUNCH_ARGS=(
   use_slam_toolbox:=false
   use_elevator:=true
   use_foxglove:=true
-  headless:=false
+  # gzclient 가 헤드리스 환경에서도 sensor/scene 데이터를 gzserver 로부터 수십 개
+  # TCP 로 받아 loopback 177 MB/s 폭주. 시각화는 Foxglove(ws://8765)로 충분.
+  headless:=true
   robot_model:=robot_d456
   direct_depth:=true
 )
