@@ -77,7 +77,8 @@ cleanup() {
     done
     sleep 2
     # 잔존 프로세스 SIGKILL
-    pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2|controller_server|component_container|xvfb-run|Xvfb|java.*indoor|gradle.*bootRun|GradleDaemon|uvicorn|vite' 2>/dev/null || true
+    pkill -9 -f 'gzserver|gzclient|rtabmap|foxglove_bridge|nav2|controller_server|component_container|xvfb-run|Xvfb|java.*indoor|gradle.*bootRun|GradleDaemon|uvicorn|vite|tf2_ros|static_transform_publisher|image_transport.*republish|elevator_teleport|slam_toolbox|nvblox|da3_depth|explore_node|trajectory_path|launch_ros' 2>/dev/null || true
+rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* 2>/dev/null || true
     echo "[exit] done"
 }
 trap cleanup EXIT INT TERM
