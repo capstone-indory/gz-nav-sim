@@ -1,7 +1,8 @@
 # gz-nav-sim
 
 Gazebo Classic 11 + ROS 2 Humble navigation simulation with lidar SLAM,
-D456 RGB-D mapping, Foxglove visualization, and semantic VLM inspection.
+D456 RGB-D mapping, Foxglove visualization, semantic OCR, and optional
+semantic VLM inspection.
 
 ## Setup
 
@@ -16,14 +17,22 @@ python3 -m pip install --upgrade pip setuptools wheel
 python3 -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 python3 -m pip install \
   numpy opencv-python pillow \
+  paddleocr pytesseract \
   huggingface_hub transformers safetensors accelerate
 colcon build --symlink-install
 source install/setup.bash
 ```
 
-The semantic VLM samples `/camera/image_raw` every 20 frames and uses
-`/d456/depth/*` only to place repeated observations on the map. No separate OCR
-engine is used.
+The semantic OCR samples `/camera/image_raw` every 5 frames by default and runs
+PaddleOCR independently from the VLM path. Detections with confidence `<= 0.6`
+are discarded. Repeated physical sign observations are tracked; the selected
+room ID for a track is updated from the highest-confidence OCR observation.
+Depth is optional today and already wired for later RGB-D association.
+
+PaddleOCR is the primary OCR backend because it returns recognized text,
+confidence, and quadrilateral boxes in one pass, supports angle classification
+for tilted hallway text, and works with multi-scale RGB frames. Tesseract is a
+fallback if PaddleOCR is unavailable.
 
 ## Run
 
@@ -35,15 +44,24 @@ ros2 launch gz_nav_sim sim_nav.launch.py \
   direct_depth:=true \
   use_da3:=false \
   use_nvblox:=true \
-  use_semantic_vlm:=true \
-  vlm_model:=Qwen/Qwen2.5-VL-3B-Instruct \
-  vlm_frame_interval:=20
+  use_semantic_ocr:=true \
+  ocr_frame_interval:=5 \
+  ocr_min_confidence:=0.6 \
+  use_semantic_vlm:=false
 ```
 
-The VLM publishes strict JSON detections and candidate/confirmed annotations:
+The OCR publishes strict JSON detections and candidate/confirmed annotations:
+
+- `/semantic_ocr/detections`
+- `/semantic_ocr/markers`
+- `/semantic_ocr/image_annotations`
+
+The VLM remains separate and can be enabled with `use_semantic_vlm:=true`; its
+outputs are not unioned with OCR:
 
 - `/semantic_vlm/detections`
 - `/semantic_vlm/markers`
+- `/semantic_vlm/image_annotations`
 
 Foxglove connects to `ws://localhost:8765`.
 
@@ -57,5 +75,6 @@ and depth point cloud on `/d456/depth/points`.
 ```
 
 The script starts Xvfb, launches D456 RGB-D + nvblox + Foxglove, and enables
-the semantic VLM. Override the model or device with `VLM_MODEL` and
-`VLM_DEVICE`.
+semantic OCR. Override OCR with `OCR_FRAME_INTERVAL`, `OCR_MIN_CONFIDENCE`,
+`OCR_SCALES`, `OCR_FLOOR_HINT`, and `OCR_FLOOR_PRIOR_MODE`. Enable VLM
+separately with `USE_SEMANTIC_VLM=true`.

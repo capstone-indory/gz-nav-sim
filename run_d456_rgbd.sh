@@ -61,7 +61,7 @@ fi
 trap "kill $XVFB_PID 2>/dev/null || true; pkill -f 'Xvfb.*:99' 2>/dev/null || true; pkill -f 'gzclient --gui-client-plugin=libgazebo_ros_eol_gui.so' 2>/dev/null || true; pkill -f 'gzserver .*sim_nav_world_' 2>/dev/null || true" EXIT
 
 echo "[2/2] vglrun으로 ROS2 launch (GPU EGL 경로)"
-echo "[info] D456 RGB-D + nvblox + semantic VLM 실행 — Foxglove ws://localhost:8765"
+echo "[info] D456 RGB-D + nvblox + semantic OCR 실행 — Foxglove ws://localhost:8765"
 echo ""
 
 LAUNCH_CMD=(ros2 launch gz_nav_sim sim_nav.launch.py \
@@ -73,7 +73,13 @@ LAUNCH_CMD=(ros2 launch gz_nav_sim sim_nav.launch.py \
   use_nvblox:=true \
   use_vggt_slam:=false \
   use_explore:="${USE_EXPLORE:-true}" \
-  use_semantic_vlm:=true \
+  use_semantic_ocr:="${USE_SEMANTIC_OCR:-true}" \
+  ocr_frame_interval:="${OCR_FRAME_INTERVAL:-5}" \
+  ocr_min_confidence:="${OCR_MIN_CONFIDENCE:-0.6}" \
+  ocr_scales:="${OCR_SCALES:-1.0,2.0}" \
+  ocr_floor_hint:="${OCR_FLOOR_HINT:-}" \
+  ocr_floor_prior_mode:="${OCR_FLOOR_PRIOR_MODE:-reject}" \
+  use_semantic_vlm:="${USE_SEMANTIC_VLM:-false}" \
   vlm_frame_interval:="${VLM_FRAME_INTERVAL:-40}" \
   vlm_model:="${VLM_MODEL:-Qwen/Qwen2.5-VL-3B-Instruct}" \
   vlm_device:="${VLM_DEVICE:-auto}" \

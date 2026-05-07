@@ -19,6 +19,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 ROOT=$PWD
+WEB_ROOT="$ROOT/indoors-web"
 
 # ── 옵션 파싱 ──────────────────────────────────────────────────────────
 WANT_FRONTEND=1
@@ -51,6 +52,16 @@ need_cmd() {
 [[ -d /opt/ros/humble ]] || { echo "[err] /opt/ros/humble 없음"; exit 1; }
 [[ -d $ROOT/install/gz_nav_sim ]] || { echo "[err] colcon build 가 안 됨 — 'colcon build --symlink-install' 먼저"; exit 1; }
 need_cmd xvfb-run
+
+if [[ ! -d $WEB_ROOT ]]; then
+    if [[ $WANT_ADAPTER == 1 || $WANT_BACKEND == 1 || $WANT_FRONTEND == 1 ]]; then
+        echo "[warn] $WEB_ROOT 없음 — 별도 indoors-web repo가 없으므로 adapter/backend/frontend는 skip"
+    fi
+    WANT_ADAPTER=0
+    WANT_BACKEND=0
+    WANT_FRONTEND=0
+    WANT_POSTGRES=0
+fi
 
 if [[ $WANT_BACKEND == 1 ]]; then
     [[ -d /opt/corretto17 ]] || { echo "[err] /opt/corretto17 없음 — README §사전준비 4 참고"; exit 1; }
@@ -224,7 +235,7 @@ fi
 # ── ros_adapter (FastAPI :8000) ────────────────────────────────────────
 if [[ $WANT_ADAPTER == 1 ]]; then
     echo "[boot] starting ros_adapter..."
-    setsid bash -c "exec $ROOT/indoors-web/ros_adapter/run.sh" \
+    setsid bash -c "exec '$WEB_ROOT/ros_adapter/run.sh'" \
         >"$LOG_DIR/adapter.log" 2>&1 &
     ADAPTER_PID=$!
     PIDS+=( "$ADAPTER_PID" ); NAMES[$ADAPTER_PID]="adapter"
@@ -267,7 +278,7 @@ if [[ $WANT_BACKEND == 1 ]]; then
       "spring.jpa.hibernate.ddl-auto": "update",
       "spring.jpa.properties.hibernate.dialect": "org.hibernate.dialect.PostgreSQLDialect"
     }'
-    setsid bash -c "cd $ROOT/indoors-web/backend && \
+    setsid bash -c "cd '$WEB_ROOT/backend' && \
         SPRING_APPLICATION_JSON='$(echo "$BACKEND_JSON" | tr -d '\n')' \
         exec ./gradlew bootRun --console=plain" \
         >"$LOG_DIR/backend.log" 2>&1 &
@@ -328,10 +339,10 @@ if [[ $WANT_FRONTEND == 1 ]]; then
 fi
 if [[ $WANT_FRONTEND == 1 ]]; then
     echo "[boot] starting frontend dev..."
-    if [[ ! -d $ROOT/indoors-web/frontend/node_modules ]]; then
-        (cd "$ROOT/indoors-web/frontend" && npm install) >>"$LOG_DIR/frontend.log" 2>&1
+    if [[ ! -d $WEB_ROOT/frontend/node_modules ]]; then
+        (cd "$WEB_ROOT/frontend" && npm install) >>"$LOG_DIR/frontend.log" 2>&1
     fi
-    setsid bash -c "cd $ROOT/indoors-web/frontend && exec npm run dev -- --host 0.0.0.0" \
+    setsid bash -c "cd '$WEB_ROOT/frontend' && exec npm run dev -- --host 0.0.0.0" \
         >>"$LOG_DIR/frontend.log" 2>&1 &
     FRONT_PID=$!
     PIDS+=( "$FRONT_PID" ); NAMES[$FRONT_PID]="frontend"
@@ -339,14 +350,21 @@ if [[ $WANT_FRONTEND == 1 ]]; then
 fi
 
 # ── 살아있는 동안 안내 + 자식 모니터 ──────────────────────────────────
+FRONTEND_STATUS="http://localhost:5173"
+BACKEND_STATUS="http://localhost:8080  (swagger /swagger-ui.html)"
+ADAPTER_STATUS="http://localhost:8000/health"
+if [[ $WANT_FRONTEND != 1 ]]; then FRONTEND_STATUS="skipped"; fi
+if [[ $WANT_BACKEND != 1 ]]; then BACKEND_STATUS="skipped"; fi
+if [[ $WANT_ADAPTER != 1 ]]; then ADAPTER_STATUS="skipped"; fi
+
 cat <<EOF
 
 ╔══════════════════════════════════════════════════════════════╗
 ║ 멀티세션 SLAM 풀스택 기동 완료                                  ║
 ╠══════════════════════════════════════════════════════════════╣
-║ Frontend:   http://localhost:5173                              ║
-║ Backend :   http://localhost:8080  (swagger /swagger-ui.html)  ║
-║ Adapter :   http://localhost:8000/health                       ║
+║ Frontend:   $FRONTEND_STATUS
+║ Backend :   $BACKEND_STATUS
+║ Adapter :   $ADAPTER_STATUS
 ║ Foxglove:   ws://localhost:8765                                ║
 ║                                                                ║
 ║ Logs    :   $LOG_DIR

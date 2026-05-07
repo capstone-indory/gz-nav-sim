@@ -9,6 +9,7 @@ install(PROGRAMS
   scripts/merge_worlds.py
   scripts/nvblox_mesh_to_gltf.py
   scripts/pointcloud_visualizer_node.py
+  scripts/semantic_ocr_node.py
   scripts/semantic_vlm_node.py
   scripts/trajectory_path_node.py
   scripts/vggt_slam_bridge.py
