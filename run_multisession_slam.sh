@@ -358,12 +358,13 @@ cat <<EOF
 ╚══════════════════════════════════════════════════════════════╝
 EOF
 
-# 자식 중 누가 죽으면 전체 종료. wait -n 으로 첫 사망 대기.
-# 자식이 없는 경우 (모든 --no-* 옵션) 는 그냥 sleep infinity — Ctrl-C 까지 대기.
-if [[ ${#PIDS[@]} -eq 0 ]]; then
-    echo "[boot] no managed children — sleeping until Ctrl-C"
+# sim 만 죽으면 전체 종료. 어댑터/백엔드/프론트는 자유롭게 재시작 가능 — 그 중 하나
+# 죽었다고 sim 까지 같이 죽이면 사용자 데이터 손실 + 매핑 진행 잃음. SIM_PID 만 모니터.
+# (이전 wait -n 은 어댑터 --reload 로 인한 일시 disappear 도 sim kill 트리거 → 위험)
+if [[ -z ${SIM_PID:-} ]]; then
+    echo "[boot] no sim — sleeping until Ctrl-C (Ctrl-C 로 모든 자식 cleanup)"
     sleep infinity
 else
-    wait -n "${PIDS[@]}" 2>/dev/null || true
-    echo "[exit] one of the children died — tearing down others"
+    while kill -0 "$SIM_PID" 2>/dev/null; do sleep 5; done
+    echo "[exit] sim died — tearing down others"
 fi
