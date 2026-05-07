@@ -15,6 +15,14 @@ LAUNCH_ARGS=(
   use_foxglove:=true
   # 자율 탐사도 부팅 시 안 띄움 — 같은 흐름.
   use_explore:=false
+  # OCR is the default semantic perception path for the web/Foxglove stack.
+  use_semantic_ocr:=true
+  ocr_frame_interval:=5
+  ocr_min_confidence:=0.6
+  ocr_scales:=1.0,2.0
+  ocr_floor_prior_mode:=reject
+  # Keep VLM separate and opt-in; do not union it with OCR.
+  use_semantic_vlm:=false
   # gzclient 헤드리스 (loopback 폭주 방지). 시각화는 Foxglove(ws://8765).
   headless:=true
   robot_model:=robot_d456
@@ -34,6 +42,10 @@ RECORD_TOPICS=(
   /map
   /map_metadata
   /pose
+  # semantic OCR
+  /semantic_ocr/detections
+  /semantic_ocr/markers
+  /semantic_ocr/image_annotations
   # Nav2
   /local_costmap/costmap
   /global_costmap/costmap

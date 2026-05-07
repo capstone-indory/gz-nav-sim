@@ -24,7 +24,7 @@
 
 set -e
 
-REPO_ROOT="/root/gz-nav-sim"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BENCH_DIR="${REPO_ROOT}/bench"
 PRESETS_DIR="${BENCH_DIR}/presets"
 RUNS_DIR="${BENCH_DIR}/runs"

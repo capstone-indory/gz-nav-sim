@@ -62,6 +62,7 @@ def _launch(context, *_args, **_kwargs):
     use_nvblox = LaunchConfiguration('use_nvblox').perform(context).lower() == 'true'
     use_vggt_slam = LaunchConfiguration('use_vggt_slam').perform(context).lower() == 'true'
     use_semantic_vlm = LaunchConfiguration('use_semantic_vlm').perform(context).lower() == 'true'
+    use_semantic_ocr = LaunchConfiguration('use_semantic_ocr').perform(context).lower() == 'true'
     use_slam_toolbox = LaunchConfiguration('use_slam_toolbox').perform(context).lower() == 'true'
     use_rtabmap = LaunchConfiguration('use_rtabmap').perform(context).lower() == 'true'
     rtabmap_localization = LaunchConfiguration('rtabmap_localization').perform(context).lower() == 'true'
@@ -329,6 +330,43 @@ def _launch(context, *_args, **_kwargs):
         }],
     )
 
+    semantic_ocr_node = Node(
+        package='gz_nav_sim',
+        executable='semantic_ocr_node.py',
+        name='semantic_ocr_node',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'image_topic': '/camera/image_raw',
+            'depth_topic': vlm_depth_topic,
+            'camera_info_topic': vlm_camera_info_topic,
+            'detections_topic': '/semantic_ocr/detections',
+            'markers_topic': '/semantic_ocr/markers',
+            'image_annotations_topic': '/semantic_ocr/image_annotations',
+            'ocr_backend': LaunchConfiguration('ocr_backend'),
+            'ocr_use_gpu': ParameterValue(
+                LaunchConfiguration('ocr_use_gpu'), value_type=bool),
+            'frame_interval': ParameterValue(
+                LaunchConfiguration('ocr_frame_interval'), value_type=int),
+            'max_queue_size': ParameterValue(
+                LaunchConfiguration('ocr_max_queue_size'), value_type=int),
+            'ocr_max_side': ParameterValue(
+                LaunchConfiguration('ocr_max_side'), value_type=int),
+            'ocr_scales': LaunchConfiguration('ocr_scales'),
+            'min_confidence': ParameterValue(
+                LaunchConfiguration('ocr_min_confidence'), value_type=float),
+            'floor_hint': LaunchConfiguration('ocr_floor_hint'),
+            'floor_prior_mode': LaunchConfiguration('ocr_floor_prior_mode'),
+            'target_frame': 'map',
+            'fallback_target_frame': 'odom',
+            'confirm_min_observations': 2,
+            'track_max_gap_frames': ParameterValue(
+                LaunchConfiguration('ocr_track_max_gap_frames'), value_type=int),
+            'track_max_depth_diff_m': ParameterValue(
+                LaunchConfiguration('ocr_track_max_depth_diff_m'), value_type=float),
+        }],
+    )
+
     pointcloud_visualizer_node = Node(
         package='gz_nav_sim',
         executable='pointcloud_visualizer_node.py',
@@ -509,6 +547,9 @@ def _launch(context, *_args, **_kwargs):
         launch_actions.append(TimerAction(period=12.0, actions=[semantic_vlm_node]))
     elif LaunchConfiguration('use_semantic_vlm').perform(context).lower() == 'true':
         launch_actions.append(LogInfo(msg='[sim_nav] semantic VLM disabled'))
+    if use_semantic_ocr:
+        # OCR runs independently from VLM and can process queued RGB samples slowly.
+        launch_actions.append(TimerAction(period=10.0, actions=[semantic_ocr_node]))
     if use_nvblox:
         # depth가 뜬 뒤에 nvblox를 띄워야 첫 프레임 누락이 없음
         launch_actions.append(TimerAction(period=8.0, actions=[nvblox_include]))
@@ -544,6 +585,10 @@ def _launch(context, *_args, **_kwargs):
                     '/local_costmap/costmap', '/global_costmap/costmap',
                     '/plan', '/plan_smoothed', '/local_plan',
                     '/gazebo/model_states', '/gazebo/link_states',
+                    '/semantic_vlm/detections', '/semantic_vlm/markers',
+                    '/semantic_vlm/image_annotations',
+                    '/semantic_ocr/detections', '/semantic_ocr/markers',
+                    '/semantic_ocr/image_annotations',
                 ],
             }],
             output='screen',
@@ -604,7 +649,8 @@ def generate_launch_description():
         DeclareLaunchArgument('use_da3', default_value='false', description='DA3 RGB depth wrapper'),
         DeclareLaunchArgument('use_nvblox', default_value='false', description='nvblox 3D mapping 노드 (isaac_ros_nvblox 필요)'),
         DeclareLaunchArgument('use_vggt_slam', default_value='false', description='VGGT-SLAM 브리지 (Python 3.11 venv 서버 spawn)'),
-        DeclareLaunchArgument('use_semantic_vlm', default_value='true', description='RGB-D 기반 semantic VLM 노드'),
+        DeclareLaunchArgument('use_semantic_vlm', default_value='false', description='RGB-D 기반 semantic VLM 노드'),
+        DeclareLaunchArgument('use_semantic_ocr', default_value='true', description='RGB 기반 semantic OCR 노드'),
         DeclareLaunchArgument('use_explore', default_value='false', description='Legacy frontier exploration (explore_lite) 자동 시작'),
         DeclareLaunchArgument('vlm_task_mode', default_value='scene_description',
                               description='semantic VLM mode: scene_description|text_objects'),
@@ -616,6 +662,28 @@ def generate_launch_description():
                               description='Run one VLM inference every N RGB frames'),
         DeclareLaunchArgument('vlm_max_new_tokens', default_value='256',
                               description='Maximum VLM output tokens'),
+        DeclareLaunchArgument('ocr_backend', default_value='paddle',
+                              description='OCR backend: paddle|tesseract'),
+        DeclareLaunchArgument('ocr_use_gpu', default_value='false',
+                              description='Use PaddleOCR GPU runtime when available'),
+        DeclareLaunchArgument('ocr_frame_interval', default_value='5',
+                              description='Run one OCR inference every N RGB frames'),
+        DeclareLaunchArgument('ocr_max_queue_size', default_value='32',
+                              description='Maximum queued OCR RGB samples'),
+        DeclareLaunchArgument('ocr_max_side', default_value='1280',
+                              description='Resize RGB OCR input so the longest side is at most this value'),
+        DeclareLaunchArgument('ocr_scales', default_value='1.0,2.0',
+                              description='Comma-separated multi-scale OCR factors'),
+        DeclareLaunchArgument('ocr_min_confidence', default_value='0.6',
+                              description='Discard OCR detections with confidence <= this threshold'),
+        DeclareLaunchArgument('ocr_floor_hint', default_value='',
+                              description='Optional floor prior, e.g. 4F|13F|B3F'),
+        DeclareLaunchArgument('ocr_floor_prior_mode', default_value='reject',
+                              description='Floor prior mode: reject|complete'),
+        DeclareLaunchArgument('ocr_track_max_gap_frames', default_value='60',
+                              description='Maximum RGB frame gap for same-sign OCR track association'),
+        DeclareLaunchArgument('ocr_track_max_depth_diff_m', default_value='0.0',
+                              description='Future RGB-D hook: reject same-sign associations above this depth gap; 0 disables'),
         DeclareLaunchArgument('use_slam_toolbox', default_value='true',
                               description='2D LiDAR slam_toolbox 활성화. use_rtabmap=true 면 false 로 둘 것.'),
         DeclareLaunchArgument('use_rtabmap', default_value='false',
