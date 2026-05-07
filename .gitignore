@@ -3,6 +3,9 @@ build/
 install/
 log/
 
+# 별도 repo (indoory/indoors-web) — 같은 머신 co-located 라 untracked
+indoors-web/
+
 # Python
 __pycache__/
 *.pyc

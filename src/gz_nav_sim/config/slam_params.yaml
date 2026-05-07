@@ -22,8 +22,10 @@ slam_toolbox:
     min_laser_range: 0.12
     max_laser_range: 12.0
     minimum_time_interval: 0.3
-    transform_timeout: 0.3
-    tf_buffer_duration: 30.0
+    transform_timeout: 1.0
+    # 부팅 초기 sim time 점프 / scan 큐잉 갭으로 30s 버퍼 lookup 실패 시
+    # tf2::ExtrapolationException 던지며 process 종료 — 5분 버퍼로 흡수.
+    tf_buffer_duration: 300.0
     stack_size_to_use: 40000000
     enable_interactive_mode: false
 

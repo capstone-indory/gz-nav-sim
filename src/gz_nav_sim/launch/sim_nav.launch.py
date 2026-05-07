@@ -426,9 +426,10 @@ def _launch(context, *_args, **_kwargs):
             ('depth/image',       '/d456/depth/image_raw'),
             ('scan',              '/scan'),
             ('odom',              '/odom'),
-            # Nav2 가 구독하는 /map 으로 grid_map 노출 (rtabmap_ros 기본:
-            # /rtabmap/grid_map). Nav2 의 nav2_params.yaml 이 /map 을 기대.
-            ('grid_map',          '/map'),
+            # rtabmap_slam 의 실제 OccupancyGrid publisher 토픽 이름은 'map'.
+            # 네임스페이스 prefix 붙어 /rtabmap/map 이 되니 표준 /map 으로 remap.
+            # (이전엔 'grid_map':=/map 였는데 그 이름은 발행되는 게 아니라 no-op.)
+            ('map',               '/map'),
         ],
         # rtabmap 은 시작 시 DB 가 있으면 자동 append, 없으면 새로 생성.
         # `--delete_db_on_start` 인자 미지정 → 멀티세션 자연스럽게 동작.
@@ -533,9 +534,11 @@ def _launch(context, *_args, **_kwargs):
                 # 화이트리스트로 가벼운 토픽만 advertise. raw 보고 싶으면
                 # /camera/image_raw 직접 추가하거나 use_compressed_topic 활용.
                 'topic_whitelist': [
-                    '/odom', '/scan', '/map', '/tf', '/tf_static', '/clock',
+                    '/odom', '/scan', '/map', '/map_metadata', '/pose',
+                    '/tf', '/tf_static', '/clock',
                     '/cmd_vel', '/cmd_vel_nav', '/cmd_vel_teleop',
                     '/camera/image_raw/compressed', '/camera/camera_info',
+                    # RTAB-Map 백엔드일 때만 채워짐 — slam_toolbox 면 비어 있음 (advertise 만).
                     '/rtabmap/cloud_map', '/rtabmap/grid_map',
                     '/rtabmap/info', '/rtabmap/mapData',
                     '/local_costmap/costmap', '/global_costmap/costmap',

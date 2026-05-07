@@ -11,6 +11,9 @@ LAUNCH_ARGS=(
   use_slam_toolbox:=false
   use_elevator:=true
   use_foxglove:=true
+  # frontier 자율 탐사 자동 시작 (Nav2 active 후 explore_lite spawn).
+  # 웹 'Explore' 버튼이 같은 일을 별도 subprocess 로 시도하므로 둘 중 하나만.
+  use_explore:=true
   # gzclient 가 헤드리스 환경에서도 sensor/scene 데이터를 gzserver 로부터 수십 개
   # TCP 로 받아 loopback 177 MB/s 폭주. 시각화는 Foxglove(ws://8765)로 충분.
   headless:=true

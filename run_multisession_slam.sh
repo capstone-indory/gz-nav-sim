@@ -191,10 +191,10 @@ if [[ $WANT_POSTGRES == 1 ]]; then
     fi
 fi
 
-# ── 시뮬레이터 (RTAB-Map + Gazebo + Nav2) ─────────────────────────────
+# ── 시뮬레이터 (SLAM Toolbox + Gazebo + Nav2) ─────────────────────────
 if [[ $WANT_SIM == 1 ]]; then
-    echo "[boot] starting sim (d456_rtabmap preset)..."
-    SIM_ARGS=( d456_rtabmap )
+    echo "[boot] starting sim (d456_slam_toolbox preset)..."
+    SIM_ARGS=( d456_slam_toolbox )
     if [[ -n $SIM_DURATION ]]; then
         SIM_ARGS+=( --duration "$SIM_DURATION" )
     fi
