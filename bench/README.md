@@ -94,6 +94,21 @@ python3 bench/compare.py runs/run1 runs/run2   # 명시
 출력 컬럼: model, da3_batches, da3_s_min/max/jitter, smoothed_ds_max,
 infer_mean_s, vggt_submaps, vggt_lock_scale, nvblox_depth_n, errors.
 
+## OCR 누락 표지판 회수
+
+`clip_sign_vlm_benchmark.py`는 OCR-only 재현에서 clip 시작 frame offset을 여러 개 줄 수 있다. 예를 들어
+`--clip-stride 5 --clip-start-offsets 1,2`는 `1+5n`, `2+5n` 프레임에서 시작하는 clip을 추가로 훑는다.
+`--target-room-ids`와 `--target-confidence-stop`을 같이 주면 target들이 지정 confidence 이상으로 모두 잡힌 순간 해당 video 처리를 멈춘다.
+
+```bash
+python3 bench/clip_sign_vlm_benchmark.py /home/fnhid/VID_20260429_221116_981.mp4 \
+  --out-dir bench/runs/ocr_4f_offsets_1_2 \
+  --clip-size 20 --clip-stride 5 --clip-start-offsets 1,2 --clip-frame-step 5 \
+  --ocr-min-confidence 0 --ocr-scales 1.0,1.5,2.0 --skip-vlm \
+  --floor-hints VID_20260429_221116_981=4F \
+  --target-room-ids 423,425 --target-confidence-stop 0.99
+```
+
 ## 알려진 한계
 
 - `replay.sh`는 현재 wrapper만 출력 (mapper-only launch 분리 필요)

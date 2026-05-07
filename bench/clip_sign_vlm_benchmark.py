@@ -335,6 +335,57 @@ def _parse_scales(text: str) -> list[float]:
     return scales or [1.0]
 
 
+def _parse_int_list(text: str | None) -> list[int]:
+    values: list[int] = []
+    if not text:
+        return values
+    for part in text.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            value = int(part)
+        except ValueError:
+            continue
+        if value not in values:
+            values.append(value)
+    return values
+
+
+def _parse_target_room_ids(text: str | None) -> list[str]:
+    targets: list[str] = []
+    if not text:
+        return targets
+    for part in text.split(','):
+        room_id = re.sub(r'[\s-]+', '', part.strip().upper())
+        if room_id and room_id not in targets:
+            targets.append(room_id)
+    return targets
+
+
+def _target_confidence_status(detections: list[Detection], targets: list[str]) -> dict[str, float]:
+    best: dict[str, float] = {}
+    target_set = set(targets)
+    for det in detections:
+        if det.room_id not in target_set:
+            continue
+        best[det.room_id] = max(best.get(det.room_id, 0.0), _conf_score(det.confidence))
+    return best
+
+
+def _make_clip_starts(frame_count: int, stride: int, offsets: list[int]) -> list[int]:
+    stride = max(1, int(stride))
+    if not offsets:
+        return list(range(0, frame_count, stride))
+    starts: set[int] = set()
+    for offset in offsets:
+        offset = max(0, int(offset))
+        if offset >= frame_count:
+            continue
+        starts.update(range(offset, frame_count, stride))
+    return sorted(starts)
+
+
 def _scaled_rgb(rgb: np.ndarray, scale: float) -> np.ndarray:
     if abs(scale - 1.0) < 1e-6:
         return rgb
@@ -1404,13 +1455,22 @@ def _write_outputs(
         '',
         f'Clip size: {config["clip_size"]} frames',
         f'Clip stride: {config["clip_stride"]} frames',
+        f'Clip start offsets: {", ".join(str(v) for v in config.get("clip_start_offsets", [])) or "0"}',
         f'Inference frame step within clip: {config["clip_frame_step"]}',
         f'OCR max side: {config["ocr_max_side"]}',
         f'VLM frame max side: {config["vlm_max_side"]}',
+    ]
+    target_ids = config.get('target_room_ids') or []
+    if target_ids:
+        lines.extend([
+            f'Target room IDs: {", ".join(target_ids)}',
+            f'Target confidence stop: {config.get("target_confidence_stop", 0.0)}',
+        ])
+    lines.extend([
         '',
         '| Video | GT signs | OCR unique IDs | OCR tracks | OCR track-best IDs | OCR physical tracks | VLM unique IDs | VLM tracks |',
         '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
-    ]
+    ])
     for item in video_summaries:
         gt = item.get('ground_truth_sign_total')
         ocr_physical = item['ocr'].get('physical_track_best') or {}
@@ -1472,6 +1532,11 @@ def main() -> int:
     parser.add_argument('--out-dir', type=Path, required=True)
     parser.add_argument('--clip-size', type=int, default=20)
     parser.add_argument('--clip-stride', type=int, default=20)
+    parser.add_argument(
+        '--clip-start-offsets',
+        default='',
+        help='Comma-separated frame offsets for clip starts. Example: with --clip-stride 5, "1,2" samples clips at 1+5n and 2+5n.',
+    )
     parser.add_argument(
         '--clip-frame-step',
         type=int,
@@ -1542,6 +1607,17 @@ def main() -> int:
     parser.add_argument('--verify-crop-max-side', type=int, default=640)
     parser.add_argument('--verify-max-new-tokens', type=int, default=128)
     parser.add_argument('--save-detected-contact-sheets', action='store_true')
+    parser.add_argument(
+        '--target-room-ids',
+        default='',
+        help='Comma-separated room IDs that must be observed by OCR. Used with --target-confidence-stop for early stopping.',
+    )
+    parser.add_argument(
+        '--target-confidence-stop',
+        type=float,
+        default=0.0,
+        help='If >0 and all --target-room-ids are seen by OCR at or above this confidence in a video, stop processing that video.',
+    )
     args = parser.parse_args()
     _debug_marker('parsed args')
 
@@ -1551,11 +1627,14 @@ def main() -> int:
     rotation_hints = _parse_rotation_hints(args.rotation_hints)
     ground_truth = _parse_ground_truth(args.ground_truth)
     scales = _parse_scales(args.ocr_scales)
+    clip_start_offsets = _parse_int_list(args.clip_start_offsets)
+    target_room_ids = _parse_target_room_ids(args.target_room_ids)
     _debug_marker('parsed hints')
 
     config = {
         'clip_size': max(1, int(args.clip_size)),
         'clip_stride': max(1, int(args.clip_stride)),
+        'clip_start_offsets': clip_start_offsets,
         'clip_frame_step': max(1, int(args.clip_frame_step)),
         'start_clip': max(1, int(args.start_clip)),
         'clip_count': max(0, int(args.clip_count)),
@@ -1581,6 +1660,8 @@ def main() -> int:
         'verify_crops': bool(args.verify_crops),
         'verify_crop_pad_ratio': float(args.verify_crop_pad_ratio),
         'verify_crop_max_side': int(args.verify_crop_max_side),
+        'target_room_ids': target_room_ids,
+        'target_confidence_stop': max(0.0, float(args.target_confidence_stop)),
     }
 
     start_t = time.perf_counter()
@@ -1641,7 +1722,11 @@ def main() -> int:
         floor_hint = _floor_hint_for_video(video, floor_hints)
         rotation = _rotation_for_video(video, args.rotate_frames, rotation_hints)
         gt_total = _hint_for_stem(video.stem, ground_truth)
-        all_starts = list(range(0, frame_count, config['clip_stride']))
+        all_starts = _make_clip_starts(
+            frame_count,
+            config['clip_stride'],
+            config.get('clip_start_offsets') or [],
+        )
         start_offset = max(0, config['start_clip'] - 1)
         starts = all_starts[start_offset:]
         if config['clip_count'] > 0:
@@ -1763,6 +1848,20 @@ def main() -> int:
                     f'ocr_ids={ocr_ids} vlm_ids={vlm_ids}',
                     flush=True,
                 )
+            target_stop_conf = float(config.get('target_confidence_stop') or 0.0)
+            target_ids = config.get('target_room_ids') or []
+            if target_ids and target_stop_conf > 0.0:
+                status = _target_confidence_status(
+                    per_video['ocr'],
+                    target_ids,
+                )
+                if target_ids and all(status.get(room_id, 0.0) >= target_stop_conf for room_id in target_ids):
+                    print(
+                        f'[clip] {video.name}: target confidence stop reached '
+                        f'({", ".join(f"{room_id}={status[room_id]:.3f}" for room_id in target_ids)})',
+                        flush=True,
+                    )
+                    break
         cap.release()
         video_summaries.append(_summarize_video(
             video,
