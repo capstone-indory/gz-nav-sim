@@ -207,16 +207,31 @@ trap cleanup EXIT INT TERM
 
 # ── launch 실행 ──────────────────────────────────────────────────────
 # xvfb-run -a: 자유 display 자동 + command 종료 시 자동 cleanup.
-# vglrun -d egl0: GPU EGL 경로. xvfb-run이 inject한 DISPLAY를 vglrun이 사용.
-echo "[bench] launching via xvfb-run: ros2 launch gz_nav_sim sim_nav.launch.py ${LAUNCH_ARGS[*]}"
-echo "[bench] ROS_LOG_DIR=${ROS_LOG_DIR}"
-# setsid: 새 session + process group 리더로 spawn. LAUNCH_PID == PGID.
-# 종료 시 kill -- -$LAUNCH_PID로 xvfb-run+vglrun+ros2 launch+모든 노드 한번에 종료.
-setsid xvfb-run -a -s "-screen 0 1280x1024x24" \
-    vglrun -d egl0 \
-    ros2 launch gz_nav_sim sim_nav.launch.py "${LAUNCH_ARGS[@]}" \
-    < /dev/null > "${RUN_DIR}/combined.log" 2>&1 &
-LAUNCH_PID=$!
+# vglrun -d egl1: GPU 1 EGL 경로. CUDA_VISIBLE_DEVICES=1 와 일치 — 모든 GPU 작업이
+# GPU 1 단독 (RTX 3090). GPU 0 은 다른 작업 가능하도록 비워둠.
+USE_ISAAC=false
+for arg in "${LAUNCH_ARGS[@]}"; do
+    [[ "$arg" == "sim_backend:=isaac" ]] && USE_ISAAC=true
+done
+
+if [ "$USE_ISAAC" = true ]; then
+    echo "[bench] Isaac backend → xvfb/vglrun 우회 (외부 sim_server 가 렌더 담당)"
+    echo "[bench] launching: ros2 launch gz_nav_sim sim_nav.launch.py ${LAUNCH_ARGS[*]}"
+    echo "[bench] ROS_LOG_DIR=${ROS_LOG_DIR}"
+    setsid ros2 launch gz_nav_sim sim_nav.launch.py "${LAUNCH_ARGS[@]}" \
+        < /dev/null > "${RUN_DIR}/combined.log" 2>&1 &
+    LAUNCH_PID=$!
+else
+    echo "[bench] launching via xvfb-run on GPU 1: ros2 launch gz_nav_sim sim_nav.launch.py ${LAUNCH_ARGS[*]}"
+    echo "[bench] ROS_LOG_DIR=${ROS_LOG_DIR}"
+    # setsid: 새 session + process group 리더로 spawn. LAUNCH_PID == PGID.
+    # 종료 시 kill -- -$LAUNCH_PID로 xvfb-run+vglrun+ros2 launch+모든 노드 한번에 종료.
+    CUDA_VISIBLE_DEVICES=1 setsid xvfb-run -a -s "-screen 0 1280x1024x24" \
+        vglrun -d egl1 \
+        ros2 launch gz_nav_sim sim_nav.launch.py "${LAUNCH_ARGS[@]}" \
+        < /dev/null > "${RUN_DIR}/combined.log" 2>&1 &
+    LAUNCH_PID=$!
+fi
 
 # --explore: Nav2 lifecycle ACTIVE까지 대기 후 explore_lite 자동 시작
 # (action 토픽만 보이면 lifecycle은 아직 inactive일 수 있어 첫 goal에서 SIGSEGV 위험)

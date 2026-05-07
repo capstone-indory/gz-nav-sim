@@ -18,6 +18,7 @@ import time
 import uuid
 from collections import Counter, deque
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import cv2
@@ -94,22 +95,51 @@ class OcrTrack:
     evidence_frames: list[int] = field(default_factory=list)
 
 
+_FLOOR_HINT_RE = re.compile(r'^(B|BASEMENT-?)?\s*(\d+)\s*(F|TH|ST|ND|RD)?$')
+
+
 def _normalize_floor_hint(value: str | None) -> str | None:
+    """Accept any floor input shape (e.g., '4', '4F', 'F4', '13', 'B3', '5F',
+    '-3') and produce canonical OCR form: '<n>F' for above-ground, 'B<n>F' for
+    basement. Returns None when input is empty/invalid."""
     if value is None:
         return None
     text = str(value).strip().upper().replace(' ', '')
     if not text:
         return None
-    if text in ('4', '4F', 'F4', '4TH'):
-        return '4F'
-    if text in ('13', '13F', 'F13', '13TH'):
-        return '13F'
-    if text in ('B3', 'B3F', 'FB3', 'BASEMENT3', 'BASEMENT-3'):
-        return 'B3F'
-    return text
+    # Negative integer = basement (e.g., '-3' → 'B3F')
+    if text.startswith('-'):
+        rest = text[1:]
+        if rest.isdigit() and int(rest) > 0:
+            return f'B{int(rest)}F'
+        return text
+    # 'F4' style → drop the leading F
+    if text.startswith('F') and text[1:].isdigit():
+        return f'{int(text[1:])}F'
+    m = _FLOOR_HINT_RE.match(text)
+    if not m:
+        return text
+    basement = bool(m.group(1))
+    n = int(m.group(2))
+    if n <= 0:
+        return text
+    return f'B{n}F' if basement else f'{n}F'
 
 
 def _apply_floor_prior(room_id: str, floor_hint: str | None, floor_prior_mode: str) -> str | None:
+    """Generic prefix filter for any floor.
+
+    Convention: room number = floor digits + 2 trailing digits. So:
+        4F   matches 4XX     (3 digits)
+        13F  matches 13XX    (4 digits)
+        25F  matches 25XX    (4 digits)
+        B3F  matches B3XX    ('B' letter + 3 digits) or 3XX in `complete` mode
+        B12F matches B12XX   ('B' letter + 4 digits) or 12XX in `complete` mode
+
+    `complete` mode for above-ground floors >=10 also accepts the trailing-N-1
+    digits (e.g., 13F + OCR '305' → '1305') in case the leading floor digit
+    was occluded — preserves the original VID_*_13F recovery behavior.
+    """
     hint = _normalize_floor_hint(floor_hint)
     compact = re.sub(r'[\s-]+', '', room_id.upper())
     match = re.match(r'^([A-Z])?(\d{3,4})$', compact)
@@ -119,21 +149,37 @@ def _apply_floor_prior(room_id: str, floor_hint: str | None, floor_prior_mode: s
     letter = letter or ''
     complete = floor_prior_mode == 'complete'
 
-    if hint == '4F':
-        return digits if not letter and digits.startswith('4') else None
-    if hint == '13F':
-        if not letter and digits.startswith('13') and len(digits) == 4:
-            return digits
-        if complete and not letter and len(digits) == 3 and digits.startswith('3'):
-            return f'13{digits[1:]}'
-        return None
-    if hint == 'B3F':
-        if letter == 'B' and len(digits) == 3 and digits.startswith('3'):
+    if not hint:
+        return compact
+
+    hm = re.match(r'^(B?)(\d+)F$', hint)
+    if not hm:
+        return compact  # malformed hint — pass through
+    basement = hm.group(1) == 'B'
+    floor_str = hm.group(2)
+    expected_len = len(floor_str) + 2
+
+    if basement:
+        if letter == 'B' and len(digits) == expected_len and digits.startswith(floor_str):
             return f'B{digits}'
-        if complete and not letter and len(digits) == 3 and digits.startswith('3'):
+        if complete and not letter and len(digits) == expected_len and digits.startswith(floor_str):
             return f'B{digits}'
         return None
-    return compact
+
+    # Above ground
+    if not letter and len(digits) == expected_len and digits.startswith(floor_str):
+        return digits
+    # Trailing-digit recovery (multi-digit floors only): OCR caught the last
+    # floor digit + room number but missed the leading floor digits.
+    if (
+        complete
+        and len(floor_str) >= 2
+        and not letter
+        and len(digits) == expected_len - len(floor_str) + 1
+        and digits.startswith(floor_str[-1])
+    ):
+        return floor_str[:-1] + digits
+    return None
 
 
 def _normalize_room_id(
@@ -277,6 +323,42 @@ class SemanticOcrNode(Node):
         self.declare_parameter('track_max_depth_diff_m', 0.0)
         self.declare_parameter('publish_raw_ocr_output', False)
 
+        # Snapshot tunable parameters once. Hot paths read from self._cfg instead
+        # of calling get_parameter() per frame/observation.
+        gp = lambda name: self.get_parameter(name).value
+        self._cfg = SimpleNamespace(
+            image_topic=str(gp('image_topic')),
+            depth_topic=str(gp('depth_topic')),
+            camera_info_topic=str(gp('camera_info_topic')),
+            detections_topic=str(gp('detections_topic')),
+            markers_topic=str(gp('markers_topic')),
+            image_annotations_topic=str(gp('image_annotations_topic')),
+            ocr_backend=str(gp('ocr_backend')).strip().lower() or 'paddle',
+            ocr_use_gpu=bool(gp('ocr_use_gpu')),
+            frame_interval=max(1, int(gp('frame_interval'))),
+            max_queue_size=max(1, int(gp('max_queue_size'))),
+            ocr_max_side=int(gp('ocr_max_side')),
+            ocr_scales=_parse_scales(str(gp('ocr_scales'))),
+            min_confidence=max(0.0, float(gp('min_confidence'))),
+            floor_hint=str(gp('floor_hint')).strip() or None,
+            floor_prior_mode=(str(gp('floor_prior_mode')).strip().lower()
+                              if str(gp('floor_prior_mode')).strip().lower() in ('reject', 'complete')
+                              else 'reject'),
+            max_depth_m=max(0.1, float(gp('max_depth_m'))),
+            depth_window_px=max(1, int(gp('depth_window_px'))),
+            target_frame=str(gp('target_frame')),
+            fallback_target_frame=str(gp('fallback_target_frame')),
+            candidate_ttl_s=max(1.0, float(gp('candidate_ttl_s'))),
+            confirm_min_observations=max(1, int(gp('confirm_min_observations'))),
+            track_max_gap_frames=max(1, int(gp('track_max_gap_frames'))),
+            track_max_center_distance_px=max(1.0, float(gp('track_max_center_distance_px'))),
+            track_distance_scale=max(0.1, float(gp('track_distance_scale'))),
+            track_min_iou=max(0.0, float(gp('track_min_iou'))),
+            track_max_depth_diff_m=max(0.0, float(gp('track_max_depth_diff_m'))),
+            publish_raw_ocr_output=bool(gp('publish_raw_ocr_output')),
+            gpu_sample_interval=10,  # nvidia-smi every N OCR jobs
+        )
+
         self._bridge = CvBridge()
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
@@ -298,6 +380,13 @@ class SemanticOcrNode(Node):
         self._dropped_jobs = 0
         self._total_inference_s = 0.0
         self._gpu_memory_samples: list[float] = []
+        self._last_gpu_snapshot: Optional[dict[str, float]] = None
+
+        # Live-updatable params: clients (e.g., the ros_adapter web bridge)
+        # call `ros2 param set /semantic_ocr_node floor_hint 4F` whenever a
+        # new web session picks a floor. Refresh the cache so subsequent OCR
+        # frames apply the new prior without restart.
+        self.add_on_set_parameters_callback(self._on_param_change)
 
         sensor_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -310,46 +399,26 @@ class SemanticOcrNode(Node):
             reliability=ReliabilityPolicy.RELIABLE,
         )
 
-        self.create_subscription(
-            Image,
-            str(self.get_parameter('image_topic').value),
-            self._on_image,
-            sensor_qos,
-        )
-        self.create_subscription(
-            Image,
-            str(self.get_parameter('depth_topic').value),
-            self._on_depth,
-            sensor_qos,
-        )
-        self.create_subscription(
-            CameraInfo,
-            str(self.get_parameter('camera_info_topic').value),
-            self._on_camera_info,
-            sensor_qos,
-        )
+        self.create_subscription(Image, self._cfg.image_topic, self._on_image, sensor_qos)
+        self.create_subscription(Image, self._cfg.depth_topic, self._on_depth, sensor_qos)
+        self.create_subscription(CameraInfo, self._cfg.camera_info_topic, self._on_camera_info, sensor_qos)
 
-        self._pub_json = self.create_publisher(
-            String, str(self.get_parameter('detections_topic').value), out_qos)
-        self._pub_markers = self.create_publisher(
-            MarkerArray, str(self.get_parameter('markers_topic').value), out_qos)
+        self._pub_json = self.create_publisher(String, self._cfg.detections_topic, out_qos)
+        self._pub_markers = self.create_publisher(MarkerArray, self._cfg.markers_topic, out_qos)
         self._pub_image_annotations = self.create_publisher(
-            ImageAnnotations,
-            str(self.get_parameter('image_annotations_topic').value),
-            out_qos,
-        )
+            ImageAnnotations, self._cfg.image_annotations_topic, out_qos)
 
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
 
         self.get_logger().info(
             'semantic OCR ready. image=%s depth=%s interval=%s backend=%s conf>%.2f scales=%s' % (
-                self.get_parameter('image_topic').value,
-                self.get_parameter('depth_topic').value,
-                self.get_parameter('frame_interval').value,
-                self.get_parameter('ocr_backend').value,
-                float(self.get_parameter('min_confidence').value),
-                self.get_parameter('ocr_scales').value,
+                self._cfg.image_topic,
+                self._cfg.depth_topic,
+                self._cfg.frame_interval,
+                self._cfg.ocr_backend,
+                self._cfg.min_confidence,
+                self._cfg.ocr_scales,
             )
         )
 
@@ -361,23 +430,21 @@ class SemanticOcrNode(Node):
 
     def _on_image(self, msg: Image) -> None:
         self._frame_seq += 1
-        interval = max(1, int(self.get_parameter('frame_interval').value))
-        if self._frame_seq % interval != 0:
+        if self._frame_seq % self._cfg.frame_interval != 0:
             return
 
         try:
-            rgb = self._bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
+            # cv_bridge ndarray may share memory with the message buffer; copy
+            # once so the worker thread is safe after this callback returns.
+            rgb = self._bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8').copy()
         except Exception as exc:
             self.get_logger().warn(f'failed to convert RGB frame for OCR: {exc}')
             return
 
-        ocr_rgb, coord_scale_x, coord_scale_y = _resize_rgb(
-            np.asarray(rgb),
-            int(self.get_parameter('ocr_max_side').value),
-        )
+        ocr_rgb, coord_scale_x, coord_scale_y = _resize_rgb(rgb, self._cfg.ocr_max_side)
         job = OcrJob(
-            rgb=np.asarray(rgb).copy(),
-            ocr_rgb=np.asarray(ocr_rgb).copy(),
+            rgb=rgb,
+            ocr_rgb=ocr_rgb,
             coord_scale_x=coord_scale_x,
             coord_scale_y=coord_scale_y,
             stamp=msg.header.stamp,
@@ -387,8 +454,7 @@ class SemanticOcrNode(Node):
             seq=self._frame_seq,
         )
         with self._job_cv:
-            max_queue = max(1, int(self.get_parameter('max_queue_size').value))
-            if len(self._jobs) >= max_queue:
+            if len(self._jobs) >= self._cfg.max_queue_size:
                 self._jobs.popleft()
                 self._dropped_jobs += 1
             self._jobs.append(job)
@@ -415,9 +481,17 @@ class SemanticOcrNode(Node):
 
         observations = self._dedupe_same_frame_observations(observations)
         now_sec = self._stamp_sec(job.stamp)
+
+        # Decode depth once per job; reused across all observations.
+        depth_array = self._decode_depth(job.depth_msg)
+        depth_scale = self._depth_scale(job.depth_msg)
+
         enriched_objects: list[dict[str, Any]] = []
         for obs in observations:
-            obs.depth_m = self._sample_depth(obs.bbox_xyxy, job.depth_msg) if obs.bbox_xyxy else None
+            obs.depth_m = (
+                self._sample_depth(obs.bbox_xyxy, depth_array, depth_scale)
+                if obs.bbox_xyxy is not None else None
+            )
             obs.world_xyz, obs.world_frame_id = self._position_observation(obs, job)
             track = self._update_track(obs, now_sec)
             enriched_objects.append(self._observation_to_dict(obs, track))
@@ -426,7 +500,11 @@ class SemanticOcrNode(Node):
         inference_s = time.monotonic() - start
         self._processed_frames += 1
         self._total_inference_s += inference_s
-        vram = self._gpu_snapshot()
+
+        # nvidia-smi is slow (50–100 ms). Sample every N OCR jobs and reuse.
+        if self._processed_frames % max(1, self._cfg.gpu_sample_interval) == 1:
+            self._last_gpu_snapshot = self._gpu_snapshot()
+        vram = self._last_gpu_snapshot
         if vram and vram.get('memory_used_mb') is not None:
             self._gpu_memory_samples.append(float(vram['memory_used_mb']))
 
@@ -448,9 +526,9 @@ class SemanticOcrNode(Node):
                 'ocr_backend_version': self._backend_version,
                 'ocr_model': self._ocr_model_description(),
                 'why_this_ocr': OCR_REASON if self._backend_name == 'paddle' else 'Fallback OCR backend.',
-                'min_confidence': float(self.get_parameter('min_confidence').value),
-                'floor_hint': _normalize_floor_hint(str(self.get_parameter('floor_hint').value)),
-                'floor_prior_mode': str(self.get_parameter('floor_prior_mode').value),
+                'min_confidence': self._cfg.min_confidence,
+                'floor_hint': _normalize_floor_hint(self._cfg.floor_hint),
+                'floor_prior_mode': self._cfg.floor_prior_mode,
                 'latency_s': round(inference_s, 3),
                 'stats': self._stats(),
                 'vram': vram,
@@ -458,7 +536,7 @@ class SemanticOcrNode(Node):
         }
         if self._backend_error:
             payload['metadata']['backend_error'] = self._backend_error
-        if bool(self.get_parameter('publish_raw_ocr_output').value):
+        if self._cfg.publish_raw_ocr_output:
             payload['raw_ocr_output'] = raw_ocr
 
         msg = String()
@@ -478,7 +556,7 @@ class SemanticOcrNode(Node):
             if self._backend_name:
                 return
 
-            requested = str(self.get_parameter('ocr_backend').value).strip().lower()
+            requested = self._cfg.ocr_backend
             if requested not in ('paddle', 'tesseract'):
                 requested = 'paddle'
             if requested == 'paddle':
@@ -486,12 +564,11 @@ class SemanticOcrNode(Node):
                     from paddleocr import PaddleOCR
                     import paddleocr
 
-                    use_gpu = bool(self.get_parameter('ocr_use_gpu').value)
                     try:
                         self._backend = PaddleOCR(
                             use_angle_cls=True,
                             lang='en',
-                            use_gpu=use_gpu,
+                            use_gpu=self._cfg.ocr_use_gpu,
                             show_log=False,
                         )
                     except TypeError:
@@ -524,8 +601,7 @@ class SemanticOcrNode(Node):
         h, w = job.rgb.shape[:2]
         raw_detections: list[dict[str, Any]] = []
         if self._backend_name == 'paddle':
-            scales = _parse_scales(str(self.get_parameter('ocr_scales').value))
-            for scale in scales:
+            for scale in self._cfg.ocr_scales:
                 rgb_in = _scaled_rgb(job.ocr_rgb, scale)
                 out = self._backend.ocr(rgb_in, cls=True)
                 lines = out[0] if out and isinstance(out[0], list) else out
@@ -595,11 +671,9 @@ class SemanticOcrNode(Node):
                     'bbox_xyxy': bbox,
                 })
 
-        floor_hint = str(self.get_parameter('floor_hint').value).strip() or None
-        prior_mode = str(self.get_parameter('floor_prior_mode').value).strip().lower()
-        if prior_mode not in ('reject', 'complete'):
-            prior_mode = 'reject'
-        min_confidence = max(0.0, float(self.get_parameter('min_confidence').value))
+        floor_hint = self._cfg.floor_hint
+        prior_mode = self._cfg.floor_prior_mode
+        min_confidence = self._cfg.min_confidence
         observations: list[OcrObservation] = []
         stamp_s = self._stamp_sec(job.stamp)
         for det in raw_detections:
@@ -653,11 +727,11 @@ class SemanticOcrNode(Node):
     def _update_track(self, obs: OcrObservation, now_sec: float) -> OcrTrack:
         best_track: Optional[OcrTrack] = None
         best_score = float('inf')
-        max_gap = max(1, int(self.get_parameter('track_max_gap_frames').value))
-        max_center = max(1.0, float(self.get_parameter('track_max_center_distance_px').value))
-        distance_scale = max(0.1, float(self.get_parameter('track_distance_scale').value))
-        min_iou = max(0.0, float(self.get_parameter('track_min_iou').value))
-        max_depth_diff = max(0.0, float(self.get_parameter('track_max_depth_diff_m').value))
+        max_gap = self._cfg.track_max_gap_frames
+        max_center = self._cfg.track_max_center_distance_px
+        distance_scale = self._cfg.track_distance_scale
+        min_iou = self._cfg.track_min_iou
+        max_depth_diff = self._cfg.track_max_depth_diff_m
 
         if obs.bbox_xyxy:
             for track in self._tracks:
@@ -730,13 +804,12 @@ class SemanticOcrNode(Node):
                     best_track.world_xyz = tuple(float(v) for v in (0.7 * old + 0.3 * new))
                 best_track.frame_id = obs.world_frame_id
 
-        min_obs = max(1, int(self.get_parameter('confirm_min_observations').value))
-        if best_track.observations >= min_obs:
+        if best_track.observations >= self._cfg.confirm_min_observations:
             best_track.confirmed = True
         return best_track
 
     def _prune_tracks(self, now_sec: float) -> None:
-        ttl = max(1.0, float(self.get_parameter('candidate_ttl_s').value))
+        ttl = self._cfg.candidate_ttl_s
         self._tracks = [
             track for track in self._tracks
             if track.confirmed or now_sec - track.last_seen_sec <= ttl
@@ -761,10 +834,7 @@ class SemanticOcrNode(Node):
         x = (u - cx) * z / fx
         y = (v - cy) * z / fy
         source_frame = job.camera_info.header.frame_id or job.frame_id
-        for target in (
-            str(self.get_parameter('target_frame').value),
-            str(self.get_parameter('fallback_target_frame').value),
-        ):
+        for target in (self._cfg.target_frame, self._cfg.fallback_target_frame):
             if not target:
                 continue
             world = self._transform_point((x, y, z), source_frame, target, job.stamp)
@@ -772,28 +842,41 @@ class SemanticOcrNode(Node):
                 return world, target
         return (float(x), float(y), float(z)), source_frame
 
-    def _sample_depth(self, bbox: Optional[list[int]], depth_msg: Optional[Image]) -> Optional[float]:
-        if bbox is None or depth_msg is None:
+    def _decode_depth(self, depth_msg: Optional[Image]) -> Optional[np.ndarray]:
+        if depth_msg is None:
             return None
         try:
-            depth = self._bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
+            return self._bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
         except Exception as exc:
             self.get_logger().warn(f'failed to convert depth image: {exc}')
+            return None
+
+    @staticmethod
+    def _depth_scale(depth_msg: Optional[Image]) -> float:
+        if depth_msg is None:
+            return 1.0
+        encoding = (depth_msg.encoding or '').lower()
+        return 0.001 if ('16u' in encoding or 'mono16' in encoding) else 1.0
+
+    def _sample_depth(
+        self,
+        bbox: Optional[list[int]],
+        depth: Optional[np.ndarray],
+        scale: float,
+    ) -> Optional[float]:
+        if bbox is None or depth is None:
             return None
         x1, y1, x2, y2 = bbox
         u = int(round((x1 + x2) * 0.5))
         v = int(round((y1 + y2) * 0.5))
-        radius = max(1, int(self.get_parameter('depth_window_px').value))
+        radius = self._cfg.depth_window_px
         y0, y3 = max(0, v - radius), min(depth.shape[0], v + radius + 1)
         x0, x3 = max(0, u - radius), min(depth.shape[1], u + radius + 1)
-        patch = np.asarray(depth[y0:y3, x0:x3])
+        patch = depth[y0:y3, x0:x3]
         if patch.size == 0:
             return None
-        values = patch.astype(np.float32).reshape(-1)
-        encoding = (depth_msg.encoding or '').lower()
-        if '16u' in encoding or 'mono16' in encoding:
-            values *= 0.001
-        max_depth = max(0.1, float(self.get_parameter('max_depth_m').value))
+        values = patch.astype(np.float32, copy=False).reshape(-1) * scale
+        max_depth = self._cfg.max_depth_m
         values = values[np.isfinite(values)]
         values = values[(values > 0.05) & (values <= max_depth)]
         if values.size == 0:
@@ -880,8 +963,9 @@ class SemanticOcrNode(Node):
 
     def _make_markers(self, stamp) -> MarkerArray:
         markers = MarkerArray()
+        target_frame = self._cfg.target_frame
         delete = Marker()
-        delete.header.frame_id = str(self.get_parameter('target_frame').value)
+        delete.header.frame_id = target_frame
         delete.header.stamp = stamp
         delete.action = Marker.DELETEALL
         markers.markers.append(delete)
@@ -894,7 +978,7 @@ class SemanticOcrNode(Node):
             color = (0.1, 0.9, 0.2, 0.9) if track.confirmed else (1.0, 0.75, 0.1, 0.75)
 
             sphere = Marker()
-            sphere.header.frame_id = track.frame_id or str(self.get_parameter('target_frame').value)
+            sphere.header.frame_id = track.frame_id or target_frame
             sphere.header.stamp = stamp
             sphere.ns = 'semantic_ocr_points'
             sphere.id = marker_id
@@ -997,7 +1081,7 @@ class SemanticOcrNode(Node):
         fps_inference = processed / self._total_inference_s if self._total_inference_s > 0.0 else 0.0
         return {
             'processed_frames': self._processed_frames,
-            'sampled_frame_interval': int(self.get_parameter('frame_interval').value),
+            'sampled_frame_interval': self._cfg.frame_interval,
             'dropped_jobs': self._dropped_jobs,
             'queue_depth': len(self._jobs),
             'elapsed_s': round(elapsed_s, 3),
@@ -1064,13 +1148,25 @@ class SemanticOcrNode(Node):
             return np.eye(3)
         s = 2.0 / n
         xx, yy, zz = x * x * s, y * y * s, z * z * s
-        xy, xz, yz = x * y * s, x * z * s
+        xy, xz, yz = x * y * s, x * z * s, y * z * s
         wx, wy, wz = w * x * s, w * y * s, w * z * s
         return np.asarray([
             [1.0 - yy - zz, xy - wz, xz + wy],
             [xy + wz, 1.0 - xx - zz, yz - wx],
             [xz - wy, yz + wx, 1.0 - xx - yy],
         ], dtype=np.float64)
+
+    def _on_param_change(self, params):
+        from rcl_interfaces.msg import SetParametersResult
+        for p in params:
+            if p.name == 'floor_hint':
+                self._cfg.floor_hint = str(p.value).strip() or None
+                self.get_logger().info(f'floor_hint updated: {self._cfg.floor_hint!r}')
+            elif p.name == 'floor_prior_mode':
+                mode = str(p.value).strip().lower()
+                self._cfg.floor_prior_mode = mode if mode in ('reject', 'complete') else 'reject'
+                self.get_logger().info(f'floor_prior_mode updated: {self._cfg.floor_prior_mode!r}')
+        return SetParametersResult(successful=True)
 
     def destroy_node(self) -> None:
         with self._job_cv:

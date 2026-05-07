@@ -56,6 +56,10 @@ def _launch(context, *_args, **_kwargs):
     nav2_pkg = get_package_share_directory('nav2_bringup')
     gazebo_ros_pkg = get_package_share_directory('gazebo_ros')
 
+    sim_backend = LaunchConfiguration('sim_backend').perform(context).strip().lower() or 'gazebo'
+    if sim_backend not in ('gazebo', 'isaac'):
+        raise RuntimeError(f"sim_backend must be 'gazebo' or 'isaac', got: {sim_backend}")
+    isaac_host = LaunchConfiguration('isaac_host').perform(context).strip() or '127.0.0.1'
     headless = LaunchConfiguration('headless').perform(context).lower() == 'true'
     foxglove = LaunchConfiguration('use_foxglove').perform(context).lower() == 'true'
     use_da3  = LaunchConfiguration('use_da3').perform(context).lower() == 'true'
@@ -95,9 +99,12 @@ def _launch(context, *_args, **_kwargs):
     else:
         camera_z = '0.5'
 
-    # World file: combined.world 의 model://robot 를 robot_model 로 substitute.
-    # 35K-line world를 통째 복사하지 않고 launch 시 한 번 텍스트 치환.
-    world_template = os.path.join(pkg, 'worlds', 'combined.world')
+    # World file: world 인자로 선택 (combined / office / hospital).
+    # combined 는 35K-line, hospital 포함 — 메모리 부담 큼. office 는 ~5K-line, 가벼움.
+    world_name = LaunchConfiguration('world').perform(context).strip() or 'combined'
+    world_template = os.path.join(pkg, 'worlds', f'{world_name}.world')
+    if not os.path.exists(world_template):
+        world_template = os.path.join(pkg, 'worlds', 'combined.world')
     if robot_model == 'robot':
         world = world_template
     else:
@@ -105,7 +112,7 @@ def _launch(context, *_args, **_kwargs):
             world_content = f.read()
         world_content = world_content.replace(
             'model://robot</uri>', f'model://{robot_model}</uri>')
-        world = f'/tmp/sim_nav_world_{robot_model}.world'
+        world = f'/tmp/sim_nav_world_{robot_model}_{world_name}.world'
         with open(world, 'w') as f:
             f.write(world_content)
 
@@ -511,19 +518,49 @@ def _launch(context, *_args, **_kwargs):
         }],
     )
 
+    # ── Isaac Sim bridge (gazebo backend 대체) ───────────────────────────
+    isaac_robot_id = int(LaunchConfiguration('isaac_robot_id').perform(context).strip() or '0')
+    isaac_bridge_node = Node(
+        package='gz_nav_sim',
+        executable='isaac_bridge.py',
+        name='isaac_bridge',
+        output='screen',
+        parameters=[{
+            'host': isaac_host,
+            'pub_port': 5555,
+            'push_port': 5556,
+            'rep_port': 5557,
+            'cmd_rate_hz': 20.0,
+            'robot_id': isaac_robot_id,
+            'odom_frame': 'odom',
+            'base_frame': 'base_link',
+            'camera_optical_frame': 'camera_optical_frame',
+            'lidar_frame': 'base_link',
+        }],
+    )
+
     launch_actions = [
-        SetEnvironmentVariable('GAZEBO_MODEL_PATH', model_paths),
-        SetEnvironmentVariable('GAZEBO_RESOURCE_PATH', resource_paths),
-        SetEnvironmentVariable('GAZEBO_PLUGIN_PATH', plugin_paths),
-        SetEnvironmentVariable('GAZEBO_MEDIA_PATH', media_paths),
         SetEnvironmentVariable('FASTDDS_BUILTIN_TRANSPORTS', 'UDPv4'),
-        # DISPLAY는 xvfb-run이 자식에 inject한 값 그대로 사용 (보통 :100, :101...).
-        # 이전에 ':99'로 override 했었는데 xvfb-run -a 자유 display 선택 결과와
-        # 충돌 → gzserver "xcb_connection_has_error" → CameraSensor render 불가.
-        gzserver,
     ]
-    if not headless:
-        launch_actions.append(gzclient)
+    if sim_backend == 'gazebo':
+        launch_actions.extend([
+            SetEnvironmentVariable('GAZEBO_MODEL_PATH', model_paths),
+            SetEnvironmentVariable('GAZEBO_RESOURCE_PATH', resource_paths),
+            SetEnvironmentVariable('GAZEBO_PLUGIN_PATH', plugin_paths),
+            SetEnvironmentVariable('GAZEBO_MEDIA_PATH', media_paths),
+            # DISPLAY는 xvfb-run이 자식에 inject한 값 그대로 사용 (보통 :100, :101...).
+            # 이전에 ':99'로 override 했었는데 xvfb-run -a 자유 display 선택 결과와
+            # 충돌 → gzserver "xcb_connection_has_error" → CameraSensor render 불가.
+            gzserver,
+        ])
+        if not headless:
+            launch_actions.append(gzclient)
+    else:
+        # Isaac Sim 백엔드: Gazebo / xvfb / vglrun 모두 우회. 외부 sim_server
+        # (xlerobot_v1 ZMQ) 가 이미 떠있다는 가정. ROS 토픽 인터페이스는 동일.
+        launch_actions.append(LogInfo(
+            msg=f'[sim_nav] Isaac backend: bridging to tcp://{isaac_host}:5555/5556/5557'))
+        launch_actions.append(isaac_bridge_node)
     launch_actions.extend([
         base_footprint_tf,
         front_camera_frame_tf,
@@ -547,9 +584,12 @@ def _launch(context, *_args, **_kwargs):
         launch_actions.append(TimerAction(period=12.0, actions=[semantic_vlm_node]))
     elif LaunchConfiguration('use_semantic_vlm').perform(context).lower() == 'true':
         launch_actions.append(LogInfo(msg='[sim_nav] semantic VLM disabled'))
-    if use_semantic_ocr:
+    if use_semantic_ocr and sim_backend == 'gazebo':
         # OCR runs independently from VLM and can process queued RGB samples slowly.
         launch_actions.append(TimerAction(period=10.0, actions=[semantic_ocr_node]))
+    elif use_semantic_ocr and sim_backend == 'isaac':
+        launch_actions.append(LogInfo(
+            msg='[sim_nav] semantic OCR disabled in isaac backend (pending RGB-D topic verification)'))
     if use_nvblox:
         # depth가 뜬 뒤에 nvblox를 띄워야 첫 프레임 누락이 없음
         launch_actions.append(TimerAction(period=8.0, actions=[nvblox_include]))
@@ -560,8 +600,11 @@ def _launch(context, *_args, **_kwargs):
     if use_vggt_slam:
         # VGGT-SLAM은 서버 프로세스를 spawn해야 해서 가제보 sensor가 뜬 후에 시작
         launch_actions.append(TimerAction(period=5.0, actions=[vggt_slam_node]))
-    if use_elevator:
+    if use_elevator and sim_backend == 'gazebo':
         launch_actions.append(elevator_node)
+    elif use_elevator and sim_backend == 'isaac':
+        launch_actions.append(LogInfo(
+            msg='[sim_nav] elevator disabled in isaac backend (single-scene assumption)'))
     if foxglove:
         launch_actions.append(Node(
             package='foxglove_bridge', executable='foxglove_bridge',
@@ -644,6 +687,12 @@ def _launch(context, *_args, **_kwargs):
 
 def generate_launch_description():
     return LaunchDescription([
+        DeclareLaunchArgument('sim_backend', default_value='gazebo',
+                              description='Sim backend: gazebo (기본) | isaac (xlerobot_v1 ZMQ via isaac_host)'),
+        DeclareLaunchArgument('isaac_host', default_value='127.0.0.1',
+                              description='Isaac sim_server 호스트. ZMQ 5555/5556/5557 으로 connect.'),
+        DeclareLaunchArgument('isaac_robot_id', default_value='1',
+                              description='Isaac fleet 안에서 우리 ROS 스택이 바인딩할 robot index (0..num_robots-1).'),
         DeclareLaunchArgument('headless',    default_value='false',  description='GUI 없이 실행'),
         DeclareLaunchArgument('use_foxglove',default_value='true',  description='Foxglove 브리지'),
         DeclareLaunchArgument('use_da3', default_value='false', description='DA3 RGB depth wrapper'),
@@ -695,6 +744,8 @@ def generate_launch_description():
         DeclareLaunchArgument('use_elevator', default_value='true', description='엘리베이터 텔레포트 노드'),
         DeclareLaunchArgument('robot_model', default_value='robot_d456',
                               description='Robot 모델 디렉토리. "robot"(mono RGB 0.5m) | "robot_d456"(D456 depth+RGB 0.8m)'),
+        DeclareLaunchArgument('world', default_value='combined',
+                              description='World: combined(office+hospital, 35K-line, 무거움) | office | hospital'),
         DeclareLaunchArgument('direct_depth', default_value='true',
                               description='True면 D456 native depth(/d456/depth/*)를 nvblox 입력으로 직접 사용. DA3/VGGT 우회.'),
         DeclareLaunchArgument('da3_model_id', default_value='',

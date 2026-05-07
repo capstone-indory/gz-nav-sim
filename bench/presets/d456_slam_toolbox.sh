@@ -6,8 +6,14 @@ PRESET_DESC="D456 + SLAM Toolbox (idle, 명령 시작)"
 
 LAUNCH_ARGS=(
   use_da3:=false
-  use_nvblox:=false
+  # nvblox 활성: GPU 1 단독 (CUDA_VISIBLE_DEVICES=1, vglrun -d egl1). office world
+  # + semantic_vlm off 조합으로 메모리 충분.
+  use_nvblox:=true
   use_vggt_slam:=false
+  # semantic_vlm (PyTorch + DETIC) 메모리 hog → off.
+  use_semantic_vlm:=false
+  # world: office only (5K-line, 가벼움). combined 는 hospital 포함 35K-line 메모리 부담.
+  world:=office
   use_rtabmap:=false
   # SLAM 노드는 부팅 시 안 띄움 — 웹에서 시작 명령 받으면 adapter 가 spawn.
   use_slam_toolbox:=false

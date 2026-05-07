@@ -32,12 +32,15 @@ def generate_launch_description():
     color_topic = LaunchConfiguration('color_topic')
     color_info_topic = LaunchConfiguration('color_info_topic')
 
+    # CUDA_VISIBLE_DEVICES=1 — gazebo (vglrun egl0 = GPU0) 와 분리해 contention 회피.
+    # GPU 1 (RTX 3090, 24GB) 단독 점유.
     nvblox_node = Node(
         package='nvblox_ros',
         executable='nvblox_node',
         name='nvblox_node',
         output='screen',
         parameters=[nvblox_params, {'use_sim_time': True}],
+        additional_env={'CUDA_VISIBLE_DEVICES': '1'},
         remappings=[
             ('depth/image', depth_topic),
             ('depth/camera_info', depth_info_topic),

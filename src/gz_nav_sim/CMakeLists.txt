@@ -6,6 +6,7 @@ find_package(ament_cmake REQUIRED)
 install(PROGRAMS
   scripts/da3_depth_node.py
   scripts/elevator_teleport.py
+  scripts/isaac_bridge.py
   scripts/merge_worlds.py
   scripts/nvblox_mesh_to_gltf.py
   scripts/pointcloud_visualizer_node.py

@@ -7,11 +7,18 @@
 # 종료: Ctrl-C 한 번. 자식 프로세스 그룹 전체 SIGTERM.
 #
 # 사용법:
-#   ./run_multisession_slam.sh                # 모두 기동, foreground 로그 통합
-#   ./run_multisession_slam.sh --no-frontend  # 프론트 없이 (이미 띄워둔 경우)
-#   ./run_multisession_slam.sh --no-postgres  # postgres 외부에서 관리
-#   ./run_multisession_slam.sh --no-backend   # 시뮬+adapter 만 (REST 직접 테스트)
+#   ./run_multisession_slam.sh [gazebo|isaac]  # sim 백엔드 선택 (기본: gazebo)
+#   ./run_multisession_slam.sh gazebo          # 기존 가제보 풀스택
+#   ./run_multisession_slam.sh isaac           # 외부 Isaac sim_server (xlerobot_v1 ZMQ) 와
+#                                                연결. ISAAC_HOST=<ip> 로 호스트 주입.
+#   ./run_multisession_slam.sh --no-frontend   # 프론트 없이 (이미 띄워둔 경우)
+#   ./run_multisession_slam.sh --no-postgres   # postgres 외부에서 관리
+#   ./run_multisession_slam.sh --no-backend    # 시뮬+adapter 만 (REST 직접 테스트)
 #   SIM_DURATION=120 ./run_multisession_slam.sh   # 시뮬에 자동 종료 시간 (디버깅)
+#
+# Isaac 모드 예:
+#   ISAAC_HOST=192.168.1.42 ./run_multisession_slam.sh isaac
+#   (sim_server 가 192.168.1.42:5555/5556/5557 에서 떠있어야 함)
 #
 # 로그: bench/runs/<ts>_multisession/{sim.log,adapter.log,backend.log,frontend.log}
 
@@ -27,22 +34,31 @@ WANT_BACKEND=1
 WANT_POSTGRES=1
 WANT_SIM=1
 WANT_ADAPTER=1
+SIM_BACKEND="gazebo"                 # gazebo | isaac
 SIM_DURATION="${SIM_DURATION:-}"     # 빈 값이면 무한정 (Ctrl-C 까지)
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        gazebo|isaac) SIM_BACKEND="$1" ;;
         --no-frontend) WANT_FRONTEND=0 ;;
         --no-backend)  WANT_BACKEND=0 ;;
         --no-postgres) WANT_POSTGRES=0 ;;
         --no-sim)      WANT_SIM=0 ;;
         --no-adapter)  WANT_ADAPTER=0 ;;
         -h|--help)
-            sed -n '2,16p' "$0" | sed 's/^# \?//'
+            sed -n '2,22p' "$0" | sed 's/^# \?//'
             exit 0 ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
     shift
 done
+
+case "$SIM_BACKEND" in
+    gazebo) SIM_PRESET="d456_slam_toolbox" ;;
+    isaac)  SIM_PRESET="d456_isaac" ;;
+    *)      echo "[err] sim_backend 는 gazebo|isaac 만 가능 (got: $SIM_BACKEND)"; exit 2 ;;
+esac
+echo "[boot] sim backend: $SIM_BACKEND  (preset: $SIM_PRESET)"
 
 # ── 사전 점검 ──────────────────────────────────────────────────────────
 need_cmd() {
@@ -51,7 +67,35 @@ need_cmd() {
 
 [[ -d /opt/ros/humble ]] || { echo "[err] /opt/ros/humble 없음"; exit 1; }
 [[ -d $ROOT/install/gz_nav_sim ]] || { echo "[err] colcon build 가 안 됨 — 'colcon build --symlink-install' 먼저"; exit 1; }
-need_cmd xvfb-run
+if [[ $SIM_BACKEND == gazebo ]]; then
+    need_cmd xvfb-run
+fi
+
+# Isaac 백엔드: ZMQ 브리지가 필요로 하는 시스템 파이썬 의존성 자동 설치 (멱등).
+# - pyzmq / msgpack: wire 프로토콜
+# - zstandard:       depth.front 압축 풀이
+# - opencv-python (cv2) + numpy: 이미 ROS humble 시스템 파이썬에 깔려있음.
+if [[ $SIM_BACKEND == isaac ]]; then
+    echo "[boot] ensuring isaac bridge deps (pyzmq, msgpack, zstandard)..."
+    missing=()
+    for mod in zmq msgpack zstandard; do
+        python3 -c "import $mod" 2>/dev/null || missing+=("$mod")
+    done
+    if (( ${#missing[@]} > 0 )); then
+        # python3 모듈명 → pip 패키지명 매핑
+        declare -A PKG=( [zmq]=pyzmq [msgpack]=msgpack [zstandard]=zstandard )
+        pkgs=()
+        for m in "${missing[@]}"; do pkgs+=("${PKG[$m]}"); done
+        echo "[boot] pip3 install ${pkgs[*]}"
+        pip3 install --break-system-packages "${pkgs[@]}" \
+            >/tmp/isaac_bridge_pip.log 2>&1 \
+            || pip3 install "${pkgs[@]}" >>/tmp/isaac_bridge_pip.log 2>&1 \
+            || { echo "[err] pip 설치 실패 — /tmp/isaac_bridge_pip.log 확인"; exit 1; }
+    fi
+    : "${ISAAC_HOST:=127.0.0.1}"
+    : "${ISAAC_ROBOT_ID:=1}"
+    echo "[boot] isaac sim_server 대상: tcp://${ISAAC_HOST}:5555/5556/5557  (robot_id=${ISAAC_ROBOT_ID})"
+fi
 
 if [[ ! -d $WEB_ROOT ]]; then
     if [[ $WANT_ADAPTER == 1 || $WANT_BACKEND == 1 || $WANT_FRONTEND == 1 ]]; then
@@ -202,15 +246,19 @@ if [[ $WANT_POSTGRES == 1 ]]; then
     fi
 fi
 
-# ── 시뮬레이터 (SLAM Toolbox + Gazebo + Nav2) ─────────────────────────
+# ── 시뮬레이터 (SLAM Toolbox + Gazebo|Isaac + Nav2) ───────────────────
 if [[ $WANT_SIM == 1 ]]; then
-    echo "[boot] starting sim (d456_slam_toolbox preset)..."
-    SIM_ARGS=( d456_slam_toolbox )
+    echo "[boot] starting sim ($SIM_PRESET preset)..."
+    SIM_ARGS=( "$SIM_PRESET" )
     if [[ -n $SIM_DURATION ]]; then
         SIM_ARGS+=( --duration "$SIM_DURATION" )
     fi
     # bench/run.sh 가 ROS_LOG_DIR + xvfb-run 처리. setsid 로 새 PG 만들어 정리 가능하게.
-    setsid bash -c "exec $ROOT/bench/run.sh ${SIM_ARGS[*]}" \
+    # ISAAC_HOST / ISAAC_ROBOT_ID 는 launch 까지 환경변수로 전달
+    # — preset 안에서 ${...:-default} 로 참조.
+    setsid env ISAAC_HOST="${ISAAC_HOST:-127.0.0.1}" \
+              ISAAC_ROBOT_ID="${ISAAC_ROBOT_ID:-1}" \
+        bash -c "exec $ROOT/bench/run.sh ${SIM_ARGS[*]}" \
         >"$LOG_DIR/sim.log" 2>&1 &
     SIM_PID=$!
     PIDS+=( "$SIM_PID" ); NAMES[$SIM_PID]="sim"
@@ -249,15 +297,16 @@ if [[ $WANT_ADAPTER == 1 ]]; then
             echo " ready"; ADAPTER_READY=1; break
         fi
         if ! kill -0 "$ADAPTER_PID" 2>/dev/null; then
-            echo ""; echo "[err] adapter process died — see $LOG_DIR/adapter.log"
-            tail -20 "$LOG_DIR/adapter.log" 2>/dev/null
-            exit 1
+            echo ""; echo "[warn] adapter process died — sim 은 계속 동작 (adapter.log 확인)"
+            tail -10 "$LOG_DIR/adapter.log" 2>/dev/null
+            ADAPTER_PID=""
+            break
         fi
         echo -n "."
         sleep 1
     done
-    if [[ $ADAPTER_READY != 1 ]]; then
-        echo ""; echo "[err] adapter not responsive after 60s"; exit 1
+    if [[ -n ${ADAPTER_PID:-} && $ADAPTER_READY != 1 ]]; then
+        echo ""; echo "[warn] adapter not responsive after 60s — sim 은 계속 동작"
     fi
 fi
 
@@ -298,17 +347,17 @@ if [[ $WANT_BACKEND == 1 ]]; then
             echo " ready"; BACKEND_READY=1; break
         fi
         if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
-            echo ""; echo "[err] backend process died — see $LOG_DIR/backend.log"
-            tail -40 "$LOG_DIR/backend.log" 2>/dev/null
-            exit 1
+            echo ""; echo "[warn] backend process died — sim/adapter 는 계속 동작 (backend.log 확인)"
+            tail -10 "$LOG_DIR/backend.log" 2>/dev/null
+            BACKEND_PID=""  # 추적 해제
+            break
         fi
         echo -n "."
         sleep 1
     done
-    if [[ $BACKEND_READY != 1 ]]; then
-        echo ""; echo "[err] backend not ready after 240s"
-        tail -40 "$LOG_DIR/backend.log" 2>/dev/null
-        exit 1
+    if [[ -n ${BACKEND_PID:-} && $BACKEND_READY != 1 ]]; then
+        echo ""; echo "[warn] backend not ready after 240s — sim/adapter 는 계속 동작"
+        tail -10 "$LOG_DIR/backend.log" 2>/dev/null
     fi
 fi
 
