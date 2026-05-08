@@ -32,6 +32,7 @@ Subscribed (from ROS):
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from typing import Any, Optional
@@ -94,6 +95,12 @@ class IsaacBridge(Node):
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('camera_optical_frame', 'camera_optical_frame')
         self.declare_parameter('lidar_frame', 'base_link')
+        # Which link in tf.links.<id> the camera is mounted on. We re-publish
+        # this link's pose as the dynamic TF base_link→camera_frame so
+        # nvblox/SLAM see the real Isaac camera placement (instead of a
+        # hardcoded mast offset). camera_frame→camera_optical_frame stays
+        # static in launch (optical convention rotation).
+        self.declare_parameter('camera_link_name', 'head_tilt')
 
         # ── camera intrinsics (RGB) — Isaac default profile 1280×720 ───
         # Defaults approximate D456 1280×720 RealSense intrinsics
@@ -136,11 +143,13 @@ class IsaacBridge(Node):
         self._t_rgb = f'rgb.front.{self._robot_id}'
         self._t_depth = f'depth.front.{self._robot_id}'
         self._t_scan = f'scan.{self._robot_id}'
+        self._t_tflinks = f'tf.links.{self._robot_id}'
 
         self._odom_frame = str(g('odom_frame'))
         self._base_frame = str(g('base_frame'))
         self._cam_frame = str(g('camera_optical_frame'))
         self._lidar_frame = str(g('lidar_frame'))
+        self._camera_link_name = str(g('camera_link_name'))
 
         self._scan_angle_min = float(g('scan_angle_min'))
         self._scan_angle_max = float(g('scan_angle_max'))
@@ -186,17 +195,26 @@ class IsaacBridge(Node):
         self._cmd_wz = 0.0
         self.create_subscription(Twist, '/cmd_vel', self._on_cmd_vel, 10)
 
+        # SO-ARM101 leader 14 joint target — adapter 가 50Hz publish.
+        # Float64MultiArray.data: 좌 6 + 우 6 + 2 (head/neck, 보류) = 14.
+        # 메시지 미수신 시 home pose [0]*14 유지.
+        from std_msgs.msg import Float64MultiArray
+        self._arm_target = [0.0] * ARM_DOF
+        self.create_subscription(Float64MultiArray, '/leader_arm_joint_target',
+                                 self._on_arm_target, 10)
+
         # ── ZMQ ──────────────────────────────────────────────────────────
         self._zmq_ctx = zmq.Context.instance()
         self._sub = self._zmq_ctx.socket(zmq.SUB)
         self._sub.setsockopt(zmq.RCVHWM, 8)
         self._sub.setsockopt(zmq.LINGER, 0)
         self._sub.connect(f'tcp://{self._host}:{self._pub_port}')
-        # Subscribe selectively to *our* robot's 4 topics. ZMQ does prefix
-        # matching, but the 4 strings are exact-name and don't share prefixes
-        # with other-robot or wrist/mid/tf topics, so the kernel filters out
+        # Subscribe selectively to *our* robot's 5 topics. ZMQ does prefix
+        # matching, but the strings are exact-name and don't share prefixes
+        # with other-robot or wrist/mid topics, so the kernel filters out
         # the 1280×720 jpeg traffic for the other N-1 robots automatically.
-        for t in (self._t_proprio, self._t_rgb, self._t_depth, self._t_scan):
+        for t in (self._t_proprio, self._t_rgb, self._t_depth, self._t_scan,
+                  self._t_tflinks):
             self._sub.setsockopt(zmq.SUBSCRIBE, t.encode('ascii'))
 
         self._push = self._zmq_ctx.socket(zmq.PUSH)
@@ -217,6 +235,17 @@ class IsaacBridge(Node):
         # SUB thread runs blocking poll in background; ROS pubs are thread-safe.
         self._stop = threading.Event()
         self._seen_topics: set[str] = set()
+
+        # ── sim-honest odom integrator ──────────────────────────────────
+        # Real wheel odometry doesn't see world ground truth — we mimic that
+        # by ignoring sim's `base_pose` and integrating only the body-frame
+        # velocity (derived from `base_twist` rotated by current world yaw).
+        # /odom starts at (0,0,0); it drifts naturally from sampling/quant
+        # error and any sim noise. SLAM's map→odom does the real correction.
+        self._odom_x = 0.0
+        self._odom_y = 0.0
+        self._odom_yaw = 0.0
+        self._prev_stamp_ns: Optional[int] = None
         self._sub_thread = threading.Thread(target=self._sub_loop, daemon=True)
         self._sub_thread.start()
 
@@ -280,10 +309,10 @@ class IsaacBridge(Node):
         elif topic == self._t_scan:
             # main lidar (z=0.10) — feeds slam_toolbox + nav2 costmaps.
             self._handle_scan(msg)
-        # scan.mid.<id> intentionally dropped: feeding two scans into the
-        # same /scan topic alternates frame_ids and saturates slam_toolbox's
-        # tf2 message filter. rgb.wrist.<id>, depth.wrist.<id>, tf.links.<id>
-        # also ignored — not used by SLAM/Nav.
+        elif topic == self._t_tflinks:
+            self._handle_tf_links(msg)
+        # scan.mid.<id>, rgb.wrist.<id>, depth.wrist.<id> intentionally
+        # dropped — not used by SLAM/Nav.
 
     def _handle_proprio(self, msg: dict) -> None:
         stamp_ns = int(msg.get('stamp_ns', 0))
@@ -294,25 +323,59 @@ class IsaacBridge(Node):
         clock.clock = stamp
         self._pub_clock.publish(clock)
 
-        pose = msg.get('base_pose')
-        if not pose or len(pose) < 7:
-            return
-        x, y, z, qx, qy, qz, qw = (float(v) for v in pose[:7])
-
+        # base_pose is read ONLY to extract the current world-yaw, used to
+        # rotate the world-frame `base_twist` into body frame (real wheel
+        # encoders give body-frame velocities directly; we recover that here).
+        # The pose itself is NOT used to set odom — that would leak ground
+        # truth and trivialize SLAM. We start /odom at (0,0,0) and integrate.
+        pose = msg.get('base_pose') or [0.0] * 7
         twist = msg.get('base_twist') or [0.0] * 6
-        vx, vy, vz, wx, wy, wz = (float(v) for v in (list(twist) + [0.0] * 6)[:6])
+        if len(pose) < 7 or len(twist) < 6:
+            return
+        qx, qy, qz, qw = (float(v) for v in pose[3:7])
+        vx_w = float(twist[0])
+        vy_w = float(twist[1])
+        wz = float(twist[5])
 
-        # /odom
+        # World yaw from the world-frame quaternion (z-axis rotation only,
+        # ground robot — pitch/roll ignored).
+        yaw_w = math.atan2(2.0 * (qw * qz + qx * qy),
+                           1.0 - 2.0 * (qy * qy + qz * qz))
+        # Rotate world-frame velocity by -yaw_w → body frame.
+        cs_w, sn_w = math.cos(yaw_w), math.sin(yaw_w)
+        vx_b = vx_w * cs_w + vy_w * sn_w
+        vy_b = -vx_w * sn_w + vy_w * cs_w
+
+        # Δt from previous proprio stamp; first frame has no integration step.
+        if self._prev_stamp_ns is None:
+            dt = 0.0
+        else:
+            dt = max(0.0, (stamp_ns - self._prev_stamp_ns) * 1e-9)
+        self._prev_stamp_ns = stamp_ns
+
+        # Integrate body-frame velocity through our drifty odom-yaw.
+        cs_o, sn_o = math.cos(self._odom_yaw), math.sin(self._odom_yaw)
+        self._odom_x += (vx_b * cs_o - vy_b * sn_o) * dt
+        self._odom_y += (vx_b * sn_o + vy_b * cs_o) * dt
+        self._odom_yaw += wz * dt
+
+        half = self._odom_yaw * 0.5
+        odom_qx, odom_qy = 0.0, 0.0
+        odom_qz, odom_qw = math.sin(half), math.cos(half)
+
+        # /odom — pose in odom frame, twist in body frame (ROS convention:
+        # twist refers to child_frame_id which is base_link).
         odom = Odometry()
         odom.header.stamp = stamp
         odom.header.frame_id = self._odom_frame
         odom.child_frame_id = self._base_frame
-        odom.pose.pose.position.x = x
-        odom.pose.pose.position.y = y
-        odom.pose.pose.position.z = z
-        odom.pose.pose.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
-        odom.twist.twist.linear = Vector3(x=vx, y=vy, z=vz)
-        odom.twist.twist.angular = Vector3(x=wx, y=wy, z=wz)
+        odom.pose.pose.position.x = self._odom_x
+        odom.pose.pose.position.y = self._odom_y
+        odom.pose.pose.position.z = 0.0
+        odom.pose.pose.orientation = Quaternion(
+            x=odom_qx, y=odom_qy, z=odom_qz, w=odom_qw)
+        odom.twist.twist.linear = Vector3(x=vx_b, y=vy_b, z=0.0)
+        odom.twist.twist.angular = Vector3(x=0.0, y=0.0, z=wz)
         self._pub_odom.publish(odom)
 
         # odom → base_link TF
@@ -320,10 +383,11 @@ class IsaacBridge(Node):
         tf.header.stamp = stamp
         tf.header.frame_id = self._odom_frame
         tf.child_frame_id = self._base_frame
-        tf.transform.translation.x = x
-        tf.transform.translation.y = y
-        tf.transform.translation.z = z
-        tf.transform.rotation = Quaternion(x=qx, y=qy, z=qz, w=qw)
+        tf.transform.translation.x = self._odom_x
+        tf.transform.translation.y = self._odom_y
+        tf.transform.translation.z = 0.0
+        tf.transform.rotation = Quaternion(
+            x=odom_qx, y=odom_qy, z=odom_qz, w=odom_qw)
         self._tf_bcast.sendTransform(tf)
 
     def _handle_rgb(self, msg: dict) -> None:
@@ -436,7 +500,11 @@ class IsaacBridge(Node):
         amax = float(msg.get('angle_max', self._scan_angle_max))
         scan.angle_min = amin
         scan.angle_max = amax
-        scan.angle_increment = (amax - amin) / n
+        # CRITICAL: take sim's own angle_increment if provided. If we recompute
+        # it from (amax-amin)/n, slam_toolbox's `expected = (amax-amin)/inc`
+        # rounds back to n+1 (e.g. 500 vs our 499 rays) and drops every scan.
+        scan.angle_increment = float(
+            msg.get('angle_increment', (amax - amin) / max(1, n)))
         scan.time_increment = 0.0
         scan.scan_time = float(msg.get('scan_time', 0.1))
         # Force our self-filter range_min instead of sim's (sim sends 0.05).
@@ -451,6 +519,39 @@ class IsaacBridge(Node):
         scan.ranges = ranges_arr.tolist()
         self._pub_scan.publish(scan)
 
+    def _handle_tf_links(self, msg: dict) -> None:
+        """Republish base_link → camera_frame as a dynamic TF.
+
+        Pulls the pose of `camera_link_name` (default `head_tilt`) out of
+        the tf.links payload and broadcasts it as TF every 30 Hz. nvblox /
+        SLAM see the actual sim camera placement (including head pan/tilt
+        motion) instead of a stale static guess.
+        """
+        targets = msg.get('targets')
+        if not targets:
+            return
+        stamp = _ns_to_time(int(msg.get('stamp_ns', 0)))
+        for t in targets:
+            if t.get('name') != self._camera_link_name:
+                continue
+            pose = t.get('pose')
+            if not pose or len(pose) < 7:
+                return
+            x, y, z, qx, qy, qz, qw = (float(v) for v in pose[:7])
+            tf = TransformStamped()
+            tf.header.stamp = stamp
+            tf.header.frame_id = self._base_frame
+            # Downstream stack already has a static camera_frame →
+            # camera_optical_frame TF (optical convention). We feed
+            # base_link → camera_frame here so the chain stays the same.
+            tf.child_frame_id = 'camera_frame'
+            tf.transform.translation.x = x
+            tf.transform.translation.y = y
+            tf.transform.translation.z = z
+            tf.transform.rotation = Quaternion(x=qx, y=qy, z=qz, w=qw)
+            self._tf_bcast.sendTransform(tf)
+            return
+
     # ── ROS → ZMQ ────────────────────────────────────────────────────────
     def _on_cmd_vel(self, msg: Twist) -> None:
         with self._cmd_lock:
@@ -458,9 +559,18 @@ class IsaacBridge(Node):
             self._cmd_vy = float(msg.linear.y)
             self._cmd_wz = float(msg.angular.z)
 
+    def _on_arm_target(self, msg) -> None:
+        # adapter 의 leader read thread 가 50Hz 로 publish. 길이 != ARM_DOF 이면 pad/truncate.
+        data = list(msg.data)[:ARM_DOF]
+        if len(data) < ARM_DOF:
+            data = data + [0.0] * (ARM_DOF - len(data))
+        with self._cmd_lock:
+            self._arm_target = data
+
     def _tick_push(self) -> None:
         with self._cmd_lock:
             base = [self._cmd_vx, self._cmd_vy, self._cmd_wz]
+            arm = list(self._arm_target)
         # No `frame` key → defaults to "body" on sim side (yaw-rotated).
         # That matches Nav2 controller_server / teleop conventions where
         # cmd_vel is already in the robot's body frame.
@@ -468,7 +578,7 @@ class IsaacBridge(Node):
             'schema': SCHEMA,
             'stamp_ns': time.time_ns(),
             'robot_id': self._robot_id,
-            'arm_joint_pos_target': self._zero_arm,
+            'arm_joint_pos_target': arm,
             'base_cmd_vel': base,
         }
         try:

@@ -7,7 +7,7 @@
 # 종료: Ctrl-C 한 번. 자식 프로세스 그룹 전체 SIGTERM.
 #
 # 사용법:
-#   ./run_multisession_slam.sh [gazebo|isaac]  # sim 백엔드 선택 (기본: gazebo)
+#   ./run_multisession_slam.sh [isaac|gazebo]  # sim 백엔드 선택 (기본: isaac)
 #   ./run_multisession_slam.sh gazebo          # 기존 가제보 풀스택
 #   ./run_multisession_slam.sh isaac           # 외부 Isaac sim_server (xlerobot_v1 ZMQ) 와
 #                                                연결. ISAAC_HOST=<ip> 로 호스트 주입.
@@ -34,7 +34,7 @@ WANT_BACKEND=1
 WANT_POSTGRES=1
 WANT_SIM=1
 WANT_ADAPTER=1
-SIM_BACKEND="gazebo"                 # gazebo | isaac
+SIM_BACKEND="isaac"                  # isaac (기본) | gazebo (잔여 정리 후 비활성)
 SIM_DURATION="${SIM_DURATION:-}"     # 빈 값이면 무한정 (Ctrl-C 까지)
 
 while [[ $# -gt 0 ]]; do

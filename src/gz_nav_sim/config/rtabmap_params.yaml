@@ -26,16 +26,28 @@ rtabmap:
     Rtabmap/DetectionRate: "1.0"       # Hz, 키프레임 후보 검사 주기
     Rtabmap/CreateIntermediateNodes: "true"
 
+    # ── Registration backbone — VISUAL/RGB-D-FIRST ──────────────────
+    # Reg/Strategy 0=Visual (RGB feature + depth), 1=ICP (라이다 scan-matching), 2=Visual+ICP.
+    # Isaac 의 RTX 카메라는 풍부한 텍스처 → visual feature 가 잘 잡힘.
+    # frame-to-frame registration + loop closure 둘 다 visual BoW (DBoW2) 로.
+    Reg/Strategy: "0"
+    Reg/Force3DoF: "true"              # 2D 평면 robot — z/roll/pitch 고정
+    # ICP 파라미터들은 미사용 (Reg/Strategy=0). 라이다 fusion 모드(=2) 복귀 시 참고용:
+    #   Icp/PointToPlane: "false"
+    #   Icp/MaxCorrespondenceDistance: "0.1"
+    #   Icp/Iterations: "10"
+    #   Icp/Epsilon: "0.001"
+
     # ── 그래프 최적화 ────────────────────────────────────────────────
     Optimizer/Strategy: "1"            # 0=TORO 1=g2o 2=GTSAM 3=Ceres
     Optimizer/Iterations: "20"
     RGBD/OptimizeFromGraphEnd: "false" # map→odom 안정 (Nav2용)
     # 0.05 는 너무 작아서 정적 로봇에서도 노이즈로 키프레임 폭증 → Memory.cpp:3473
     # 'fromS->getWeight() >= 0' assertion fail (UException, exit -6).
-    # 0.2m / 0.2rad 로 키워 의미 있는 이동 시에만 새 노드 추가.
-    RGBD/AngularUpdate: "0.2"
-    RGBD/LinearUpdate: "0.2"
-    RGBD/ProximityBySpace: "true"      # /scan 으로 근접 매칭
+    # 0.1m / 0.1rad — slam_toolbox 와 비슷한 dense keyframe (assertion 안 나오는 최저).
+    RGBD/AngularUpdate: "0.1"
+    RGBD/LinearUpdate: "0.1"
+    RGBD/ProximityBySpace: "true"      # pose-graph 기반 근접 매칭 (라이다 무관)
     RGBD/ProximityMaxGraphDepth: "50"
 
     # ── Loop Closure (visual BoW) ────────────────────────────────────

@@ -56,9 +56,17 @@ def _launch(context, *_args, **_kwargs):
     nav2_pkg = get_package_share_directory('nav2_bringup')
     gazebo_ros_pkg = get_package_share_directory('gazebo_ros')
 
-    sim_backend = LaunchConfiguration('sim_backend').perform(context).strip().lower() or 'gazebo'
+    sim_backend = LaunchConfiguration('sim_backend').perform(context).strip().lower() or 'isaac'
     if sim_backend not in ('gazebo', 'isaac'):
         raise RuntimeError(f"sim_backend must be 'gazebo' or 'isaac', got: {sim_backend}")
+    # Gazebo backend 는 일시 비활성. allow_gazebo:=true 명시할 때만 부팅 허용 —
+    # 실수로 isaac 대신 gazebo 가 떠서 GPU/메모리 잡아먹는 것 차단.
+    if sim_backend == 'gazebo':
+        allow_gz = LaunchConfiguration('allow_gazebo').perform(context).strip().lower() == 'true'
+        if not allow_gz:
+            raise RuntimeError(
+                "sim_backend='gazebo' 는 비활성화됨. Isaac 사용 (sim_backend:=isaac) 또는 "
+                "복귀하려면 allow_gazebo:=true 를 명시. 잔여 gazebo 프로세스 자동 spawn 방지용.")
     isaac_host = LaunchConfiguration('isaac_host').perform(context).strip() or '127.0.0.1'
     headless = LaunchConfiguration('headless').perform(context).lower() == 'true'
     foxglove = LaunchConfiguration('use_foxglove').perform(context).lower() == 'true'
@@ -91,12 +99,14 @@ def _launch(context, *_args, **_kwargs):
             'use_rtabmap=true와 use_slam_toolbox=true는 동시 사용 불가 — '
             '한 백엔드만 map→odom TF를 발행해야 함.')
 
-    # 카메라 z height (TF용) — robot_model에 따라 달라짐.
-    #   'robot'      → 0.50m (mono RGB)
-    #   'robot_d456' → 0.80m (Realsense D456 depth+RGB on a mast)
+    # base_link → camera_frame static TF 위치 — gazebo 모드에서만 사용.
+    # isaac 모드는 isaac_bridge 가 tf.links.<id> 페이로드의 head_tilt 포즈를
+    # 30Hz dynamic TF 로 발행하므로 여기 static 값은 의미 없음.
     if robot_model == 'robot_d456':
+        camera_x = '0.16'
         camera_z = '0.80'
     else:
+        camera_x = '0.0'
         camera_z = '0.5'
 
     # World file: world 인자로 선택 (combined / office / hospital).
@@ -188,7 +198,7 @@ def _launch(context, *_args, **_kwargs):
         executable='static_transform_publisher',
         name='camera_frame_tf',
         arguments=[
-            '--x', '0.16', '--y', '0', '--z', camera_z,
+            '--x', camera_x, '--y', '0', '--z', camera_z,
             '--roll', '0', '--pitch', '0', '--yaw', '0',
             '--frame-id', 'base_link', '--child-frame-id', 'camera_frame',
         ],
@@ -520,6 +530,8 @@ def _launch(context, *_args, **_kwargs):
 
     # ── Isaac Sim bridge (gazebo backend 대체) ───────────────────────────
     isaac_robot_id = int(LaunchConfiguration('isaac_robot_id').perform(context).strip() or '0')
+    isaac_camera_link = (LaunchConfiguration('isaac_camera_link')
+                         .perform(context).strip() or 'head_tilt')
     isaac_bridge_node = Node(
         package='gz_nav_sim',
         executable='isaac_bridge.py',
@@ -536,6 +548,7 @@ def _launch(context, *_args, **_kwargs):
             'base_frame': 'base_link',
             'camera_optical_frame': 'camera_optical_frame',
             'lidar_frame': 'base_link',
+            'camera_link_name': isaac_camera_link,
         }],
     )
 
@@ -561,9 +574,12 @@ def _launch(context, *_args, **_kwargs):
         launch_actions.append(LogInfo(
             msg=f'[sim_nav] Isaac backend: bridging to tcp://{isaac_host}:5555/5556/5557'))
         launch_actions.append(isaac_bridge_node)
+    launch_actions.append(base_footprint_tf)
+    # base_link → camera_frame: gazebo 는 static, isaac 는 isaac_bridge 가
+    # tf.links.<id> 에서 dynamic 으로 발행하므로 여기서 추가하면 TF 충돌.
+    if sim_backend == 'gazebo':
+        launch_actions.append(front_camera_frame_tf)
     launch_actions.extend([
-        base_footprint_tf,
-        front_camera_frame_tf,
         front_camera_optical_tf,
         pointcloud_visualizer_node,
         trajectory_path_node,
@@ -584,12 +600,10 @@ def _launch(context, *_args, **_kwargs):
         launch_actions.append(TimerAction(period=12.0, actions=[semantic_vlm_node]))
     elif LaunchConfiguration('use_semantic_vlm').perform(context).lower() == 'true':
         launch_actions.append(LogInfo(msg='[sim_nav] semantic VLM disabled'))
-    if use_semantic_ocr and sim_backend == 'gazebo':
-        # OCR runs independently from VLM and can process queued RGB samples slowly.
+    if use_semantic_ocr:
+        # Isaac bridge publishes /camera/image_raw + /d456/depth/* identically to
+        # the gazebo path, so OCR works for both backends.
         launch_actions.append(TimerAction(period=10.0, actions=[semantic_ocr_node]))
-    elif use_semantic_ocr and sim_backend == 'isaac':
-        launch_actions.append(LogInfo(
-            msg='[sim_nav] semantic OCR disabled in isaac backend (pending RGB-D topic verification)'))
     if use_nvblox:
         # depth가 뜬 뒤에 nvblox를 띄워야 첫 프레임 누락이 없음
         launch_actions.append(TimerAction(period=8.0, actions=[nvblox_include]))
@@ -622,9 +636,8 @@ def _launch(context, *_args, **_kwargs):
                     '/tf', '/tf_static', '/clock',
                     '/cmd_vel', '/cmd_vel_nav', '/cmd_vel_teleop',
                     '/camera/image_raw/compressed', '/camera/camera_info',
-                    # RTAB-Map 백엔드일 때만 채워짐 — slam_toolbox 면 비어 있음 (advertise 만).
-                    '/rtabmap/cloud_map', '/rtabmap/grid_map',
-                    '/rtabmap/info', '/rtabmap/mapData',
+                    # nvblox 3D mesh (use_nvblox:=true 일 때만)
+                    '/nvblox_node/scene',
                     '/local_costmap/costmap', '/global_costmap/costmap',
                     '/plan', '/plan_smoothed', '/local_plan',
                     '/gazebo/model_states', '/gazebo/link_states',
@@ -687,12 +700,17 @@ def _launch(context, *_args, **_kwargs):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('sim_backend', default_value='gazebo',
-                              description='Sim backend: gazebo (기본) | isaac (xlerobot_v1 ZMQ via isaac_host)'),
+        DeclareLaunchArgument('sim_backend', default_value='isaac',
+                              description='Sim backend: isaac (기본, xlerobot_v1 ZMQ via isaac_host) | gazebo (legacy, 잔여 정리 후 비활성)'),
+        DeclareLaunchArgument('allow_gazebo', default_value='false',
+                              description='gazebo backend 명시 허용. 기본 false — 사고로 gzserver 가 뜨는 것 차단.'),
         DeclareLaunchArgument('isaac_host', default_value='127.0.0.1',
                               description='Isaac sim_server 호스트. ZMQ 5555/5556/5557 으로 connect.'),
         DeclareLaunchArgument('isaac_robot_id', default_value='1',
                               description='Isaac fleet 안에서 우리 ROS 스택이 바인딩할 robot index (0..num_robots-1).'),
+        DeclareLaunchArgument('isaac_camera_link', default_value='head_tilt',
+                              description='Isaac tf.links.<id> 안에서 카메라가 mount된 링크 이름. '
+                                          'isaac_bridge 가 base_link→camera_frame TF 를 이 링크 포즈로 dynamic 발행.'),
         DeclareLaunchArgument('headless',    default_value='false',  description='GUI 없이 실행'),
         DeclareLaunchArgument('use_foxglove',default_value='true',  description='Foxglove 브리지'),
         DeclareLaunchArgument('use_da3', default_value='false', description='DA3 RGB depth wrapper'),

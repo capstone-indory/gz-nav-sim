@@ -1,15 +1,11 @@
-# Preset: D456 RGB-D + SLAM Toolbox (Isaac Sim 백엔드)
-# d456_slam_toolbox 와 동일한 ROS 스택 (slam_toolbox idle, Nav2, foxglove,
-# nvblox, elevator off) 인데 Gazebo 가 아니라 외부 indoory_isaac_sim 이
-# 센서/오도 publish 한다. ZMQ 채널 5555/5556/5557 로 연결.
+# Preset: D456 + SLAM Toolbox + nvblox (Isaac Sim 백엔드)
+# 라이다 기반 2D SLAM (slam_toolbox) 가 map→odom TF 와 /map 을 발행.
+# nvblox 는 그 TF 위에 depth 를 누적해 3D mesh 시각화.
 #
-# Isaac sim_server 가 어디서 도는지는 ISAAC_HOST 환경변수로 주입.
-#   ISAAC_HOST=192.168.1.42 ./run_multisession_slam.sh isaac
-# 비우면 127.0.0.1 (로컬에서 sim_server 같이 띄우는 경우).
-#
-# Multi-robot fleet: sim_server --num-robots N 으로 부팅된 fleet 중 어느
-# robot 을 우리 ROS 스택이 운전할지는 ISAAC_ROBOT_ID 로 선택.
-#   ISAAC_ROBOT_ID=1 ./run_multisession_slam.sh isaac     # robot 1 운전
+# Isaac sim_server 호스트는 ISAAC_HOST 환경변수.
+#   ISAAC_HOST=100.80.87.68 ./run_multisession_slam.sh isaac
+# Multi-robot fleet 중 어느 robot 을 운전할지는 ISAAC_ROBOT_ID.
+#   ISAAC_ROBOT_ID=1 ./run_multisession_slam.sh isaac
 PRESET_NAME="d456_isaac"
 PRESET_DESC="D456 + SLAM Toolbox (Isaac Sim, ZMQ bridge)"
 
@@ -18,14 +14,13 @@ LAUNCH_ARGS=(
   isaac_host:=${ISAAC_HOST:-127.0.0.1}
   isaac_robot_id:=${ISAAC_ROBOT_ID:-1}
   use_da3:=false
+  # nvblox: SLAM 이 아니라 3D 볼륨 매핑 시각화 — slam_toolbox 의 TF 위에 mesh 만 그림.
   use_nvblox:=true
   use_vggt_slam:=false
   use_semantic_vlm:=false
   world:=office
+  # 라이다 우선 SLAM. RTAB-Map 은 사용 안 함.
   use_rtabmap:=false
-  # 부팅 시 slam_toolbox 자동 시작 — passive SLAM (라이다 기반 라이브 mapping +
-  # localization). 사용자 텔레옵에 따라 맵이 그려짐. explore_lite (자율 탐사) 는
-  # 별도 — 웹의 '자율 탐사' 버튼으로만 시작.
   use_slam_toolbox:=true
   # Isaac 은 단일 씬: 빌딩 텔레포트 비활성.
   use_elevator:=false
