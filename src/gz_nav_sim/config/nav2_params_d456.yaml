@@ -110,7 +110,8 @@ controller_server:
     use_sim_time: True
     controller_frequency: 20.0
     min_x_velocity_threshold: 0.001
-    min_y_velocity_threshold: 0.5
+    # diff-drive 라 y vel 0 이라 사실상 영향 없지만, 다른 컴포넌트 헷갈리지 않게 0.001 통일.
+    min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.3
     progress_checker_plugin: "progress_checker"
@@ -145,7 +146,9 @@ controller_server:
       vx_samples: 20
       vy_samples: 5
       vtheta_samples: 20
-      sim_time: 1.7
+      # 1.7s 너무 길어 좁은 복도/코너에서 noisy. 1.0s 로 short-horizon — diff-drive
+      # 의 typical 값.
+      sim_time: 1.0
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
@@ -154,7 +157,9 @@ controller_server:
       short_circuit_trajectory_evaluation: True
       stateful: True
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.02
+      # BaseObstacle 0.02 → 1.0: 장애물 회피 가중치가 거의 0 이라 좁은 코너에서
+      # path-align 과 충돌 → 좌우 진동. path/goal scale 과 비교해 적정 비중으로 올림.
+      BaseObstacle.scale: 1.0
       PathAlign.scale: 32.0
       PathAlign.forward_point_distance: 0.1
       GoalAlign.scale: 24.0
@@ -164,6 +169,13 @@ controller_server:
       RotateToGoal.scale: 8.0
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
+      # Oscillation critic 명시 — 디폴트는 너무 공격적이라 살짝 흔들리기만 해도
+      # 모든 방향 ban → controller failure → recovery (spin) trigger.
+      # reset_dist 5cm 이동, reset_angle 0.2 rad 회전, reset_time -1 (시간 reset 없음)
+      # 으로 좀 더 너그럽게.
+      Oscillation.oscillation_reset_dist: 0.05
+      Oscillation.oscillation_reset_angle: 0.2
+      Oscillation.oscillation_reset_time: -1.0
 
 local_costmap:
   local_costmap:

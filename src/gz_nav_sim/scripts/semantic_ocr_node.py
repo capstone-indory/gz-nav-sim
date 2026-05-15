@@ -1157,15 +1157,25 @@ class SemanticOcrNode(Node):
         ], dtype=np.float64)
 
     def _on_param_change(self, params):
+        """floor_hint set = 세션 경계 = 트랙 강제 reset.
+        값이 같든 다르든 set 자체를 reset 신호로 취급한다 (예: 같은 층에 fresh
+        매핑 다시 시작하는 '덮어쓰기' 케이스도 spot 초기화)."""
         from rcl_interfaces.msg import SetParametersResult
+        reset_tracks = False
         for p in params:
             if p.name == 'floor_hint':
                 self._cfg.floor_hint = str(p.value).strip() or None
                 self.get_logger().info(f'floor_hint updated: {self._cfg.floor_hint!r}')
+                reset_tracks = True  # 항상 reset
             elif p.name == 'floor_prior_mode':
                 mode = str(p.value).strip().lower()
                 self._cfg.floor_prior_mode = mode if mode in ('reject', 'complete') else 'reject'
                 self.get_logger().info(f'floor_prior_mode updated: {self._cfg.floor_prior_mode!r}')
+        if reset_tracks:
+            # _make_markers 도 자동으로 빈 MarkerArray + DELETEALL 발행해 Foxglove
+            # 3D 패널의 잔재 마커도 사라짐. 어댑터 캐시는 set_ocr_floor 가 직접 비움.
+            self._tracks = []
+            self.get_logger().info('OCR tracks cleared (session boundary)')
         return SetParametersResult(successful=True)
 
     def destroy_node(self) -> None:

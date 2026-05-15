@@ -1,22 +1,24 @@
-"""Gazebo Classic 11 + Nav2 + SLAM Toolbox simulation (ROS 2 Humble).
-
-  ros2 launch gz_nav_sim sim_nav.launch.py
-  ros2 launch gz_nav_sim sim_nav.launch.py headless:=true use_foxglove:=true
-
-SLAM이 자동으로 map→odom TF와 /map 토픽을 제공합니다. 초기 포즈 별도 설정 불필요.
-월드: combined.world — office (origin) + hospital (+150m on X) 머지 맵.
-로봇 스폰 위치: office 내부 (-3, 0), 엘리베이터 방향 바라봄.
-엘리베이터 이동: /elevator/call 에 std_msgs/Empty publish (현재 존에 따라 반대 빌딩으로 텔레포트).
-"""
+"""Isaac Sim v2 + Nav2 + SLAM launch for XLeRobot Hospital."""
 
 import os
 
-from ament_index_python.packages import PackageNotFoundError, get_package_prefix, get_package_share_directory
+from ament_index_python.packages import (
+    PackageNotFoundError,
+    get_package_prefix,
+    get_package_share_directory,
+)
 from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, EmitEvent,
-                            ExecuteProcess, IncludeLaunchDescription,
-                            LogInfo, OpaqueFunction, RegisterEventHandler,
-                            SetEnvironmentVariable, TimerAction)
+from launch.actions import (
+    DeclareLaunchArgument,
+    EmitEvent,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    LogInfo,
+    OpaqueFunction,
+    RegisterEventHandler,
+    SetEnvironmentVariable,
+    TimerAction,
+)
 from launch.events import matches_action
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -25,15 +27,6 @@ from launch_ros.event_handlers import OnStateTransition
 from launch_ros.events.lifecycle import ChangeState
 from launch_ros.parameter_descriptions import ParameterValue
 from lifecycle_msgs.msg import Transition
-
-
-def _join_paths(*groups: str) -> str:
-    paths: list[str] = []
-    for group in groups:
-        for p in (group or '').split(os.pathsep):
-            if p and p not in paths:
-                paths.append(p)
-    return os.pathsep.join(paths)
 
 
 def _optional_launch_arg(context, name: str, cast=None):
@@ -52,25 +45,18 @@ def _package_available(name: str) -> bool:
 
 
 def _launch(context, *_args, **_kwargs):
-    pkg      = get_package_share_directory('gz_nav_sim')
+    pkg = get_package_share_directory('gz_nav_sim')
     nav2_pkg = get_package_share_directory('nav2_bringup')
-    gazebo_ros_pkg = get_package_share_directory('gazebo_ros')
 
-    sim_backend = LaunchConfiguration('sim_backend').perform(context).strip().lower() or 'isaac'
-    if sim_backend not in ('gazebo', 'isaac'):
-        raise RuntimeError(f"sim_backend must be 'gazebo' or 'isaac', got: {sim_backend}")
-    # Gazebo backend 는 일시 비활성. allow_gazebo:=true 명시할 때만 부팅 허용 —
-    # 실수로 isaac 대신 gazebo 가 떠서 GPU/메모리 잡아먹는 것 차단.
-    if sim_backend == 'gazebo':
-        allow_gz = LaunchConfiguration('allow_gazebo').perform(context).strip().lower() == 'true'
-        if not allow_gz:
-            raise RuntimeError(
-                "sim_backend='gazebo' 는 비활성화됨. Isaac 사용 (sim_backend:=isaac) 또는 "
-                "복귀하려면 allow_gazebo:=true 를 명시. 잔여 gazebo 프로세스 자동 spawn 방지용.")
     isaac_host = LaunchConfiguration('isaac_host').perform(context).strip() or '127.0.0.1'
-    headless = LaunchConfiguration('headless').perform(context).lower() == 'true'
+    isaac_transport = LaunchConfiguration('isaac_transport').perform(context).strip().lower() or 'rosbridge_v2'
+    if isaac_transport not in ('rosbridge_v2', 'zmq_v1'):
+        raise RuntimeError(
+            "isaac_transport must be 'rosbridge_v2' or 'zmq_v1', "
+            f"got: {isaac_transport}")
+
     foxglove = LaunchConfiguration('use_foxglove').perform(context).lower() == 'true'
-    use_da3  = LaunchConfiguration('use_da3').perform(context).lower() == 'true'
+    use_da3 = LaunchConfiguration('use_da3').perform(context).lower() == 'true'
     use_nvblox = LaunchConfiguration('use_nvblox').perform(context).lower() == 'true'
     use_vggt_slam = LaunchConfiguration('use_vggt_slam').perform(context).lower() == 'true'
     use_semantic_vlm = LaunchConfiguration('use_semantic_vlm').perform(context).lower() == 'true'
@@ -79,14 +65,11 @@ def _launch(context, *_args, **_kwargs):
     use_rtabmap = LaunchConfiguration('use_rtabmap').perform(context).lower() == 'true'
     rtabmap_localization = LaunchConfiguration('rtabmap_localization').perform(context).lower() == 'true'
     rtabmap_db = LaunchConfiguration('rtabmap_db').perform(context).strip()
-    use_elevator = LaunchConfiguration('use_elevator').perform(context).lower() == 'true'
     use_explore = LaunchConfiguration('use_explore').perform(context).lower() == 'true'
-    robot_model = LaunchConfiguration('robot_model').perform(context).strip() or 'robot'
     direct_depth = LaunchConfiguration('direct_depth').perform(context).lower() == 'true'
 
     nvblox_available = _package_available('nvblox_ros')
     foxglove_available = _package_available('foxglove_bridge')
-    image_transport_available = _package_available('image_transport')
     explore_available = _package_available('explore_lite')
     if use_nvblox and not nvblox_available:
         use_nvblox = False
@@ -99,88 +82,10 @@ def _launch(context, *_args, **_kwargs):
             'use_rtabmap=true와 use_slam_toolbox=true는 동시 사용 불가 — '
             '한 백엔드만 map→odom TF를 발행해야 함.')
 
-    # base_link → camera_frame static TF 위치 — gazebo 모드에서만 사용.
-    # isaac 모드는 isaac_bridge 가 tf.links.<id> 페이로드의 head_tilt 포즈를
-    # 30Hz dynamic TF 로 발행하므로 여기 static 값은 의미 없음.
-    if robot_model == 'robot_d456':
-        camera_x = '0.16'
-        camera_z = '0.80'
-    else:
-        camera_x = '0.0'
-        camera_z = '0.5'
-
-    # World file: world 인자로 선택 (combined / office / hospital).
-    # combined 는 35K-line, hospital 포함 — 메모리 부담 큼. office 는 ~5K-line, 가벼움.
-    world_name = LaunchConfiguration('world').perform(context).strip() or 'combined'
-    world_template = os.path.join(pkg, 'worlds', f'{world_name}.world')
-    if not os.path.exists(world_template):
-        world_template = os.path.join(pkg, 'worlds', 'combined.world')
-    if robot_model == 'robot':
-        world = world_template
-    else:
-        with open(world_template, 'r') as f:
-            world_content = f.read()
-        world_content = world_content.replace(
-            'model://robot</uri>', f'model://{robot_model}</uri>')
-        world = f'/tmp/sim_nav_world_{robot_model}_{world_name}.world'
-        with open(world, 'w') as f:
-            f.write(world_content)
-
     workspace_root = os.path.abspath(os.path.join(pkg, '..', '..', '..', '..'))
     da3_repo = os.path.join(workspace_root, 'src', 'Depth-Anything-3')
     vggt_slam_repo = os.path.join(workspace_root, 'src', 'VGGT-SLAM')
 
-    # ── Gazebo model / resource paths ────────────────────────────────────────
-    # Include Gazebo Classic 11 system paths explicitly — without them the
-    # shader libs under /usr/share/gazebo-11 can't be found and camera
-    # sensors fail to render ("Unable to create CameraSensor").  Normally
-    # `source /usr/share/gazebo/setup.bash` does this; we inline it here so
-    # the launch works regardless of the user's shell setup.
-    gazebo_system_paths = [
-        '/usr/share/gazebo-11',
-        '/usr/share/gazebo',
-    ]
-    model_paths = _join_paths(
-        os.path.join(pkg, 'models'),
-        os.path.join(pkg, 'models', 'office'),
-        os.path.join(pkg, 'models', 'hospital'),
-        '/usr/share/gazebo-11/models',
-        '/usr/share/gazebo/models',
-        os.environ.get('GAZEBO_MODEL_PATH', ''),
-    )
-    resource_paths = _join_paths(
-        pkg,
-        os.path.join(pkg, 'models', 'office'),
-        *gazebo_system_paths,
-        os.environ.get('GAZEBO_RESOURCE_PATH', ''),
-    )
-    plugin_paths = _join_paths(
-        '/opt/ros/humble/lib',
-        '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins',
-        os.environ.get('GAZEBO_PLUGIN_PATH', ''),
-    )
-    media_paths = _join_paths(
-        '/usr/share/gazebo-11/media',
-        os.environ.get('GAZEBO_MEDIA_PATH', ''),
-    )
-
-    # ── Gazebo Classic 11 (gzserver + gzclient) ──────────────────────────────
-    gzserver = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(gazebo_ros_pkg, 'launch', 'gzserver.launch.py')),
-        launch_arguments={
-            'world': world,
-            'verbose': 'true',
-            'pause': 'false',
-        }.items(),
-    )
-    gzclient = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(gazebo_ros_pkg, 'launch', 'gzclient.launch.py')),
-        launch_arguments={'verbose': 'true'}.items(),
-    )
-
-    # ── Static TFs for camera frames ─────────────────────────────────────────
     base_footprint_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
@@ -198,7 +103,7 @@ def _launch(context, *_args, **_kwargs):
         executable='static_transform_publisher',
         name='camera_frame_tf',
         arguments=[
-            '--x', camera_x, '--y', '0', '--z', camera_z,
+            '--x', '0.16', '--y', '0', '--z', '0.80',
             '--roll', '0', '--pitch', '0', '--yaw', '0',
             '--frame-id', 'base_link', '--child-frame-id', 'camera_frame',
         ],
@@ -217,7 +122,6 @@ def _launch(context, *_args, **_kwargs):
         output='screen',
     )
 
-    # ── SLAM Toolbox (online async — fresh map every run) ───────────────────
     slam_params = os.path.join(pkg, 'config', 'slam_params.yaml')
     da3_params = os.path.join(pkg, 'config', 'da3_params.yaml')
     if direct_depth:
@@ -260,11 +164,7 @@ def _launch(context, *_args, **_kwargs):
         )
     )
 
-    # ── Nav2 (navigation only — map comes from SLAM) ────────────────────────
-    if robot_model == 'robot_d456':
-        nav2_params = os.path.join(pkg, 'config', 'nav2_params_d456.yaml')
-    else:
-        nav2_params = os.path.join(pkg, 'config', 'nav2_params.yaml')
+    nav2_params = os.path.join(pkg, 'config', 'nav2_params_d456.yaml')
     if not os.path.exists(nav2_params):
         nav2_params = os.path.join(nav2_pkg, 'params', 'nav2_params.yaml')
 
@@ -284,10 +184,6 @@ def _launch(context, *_args, **_kwargs):
             'use_sim_time': 'true',
             'autostart': 'true',
             'params_file': nav2_params,
-            # use_composition=True + LoadComposableNodes의 RewrittenYaml param이
-            # component에 전달되지 않는 Humble 버그 → costmap이 hardcoded default 플러그인
-            # (static_layer 포함) 로드 → slam의 transient_local map과 race → SIGSEGV.
-            # False면 각 서버가 별도 프로세스로 뜨고 --params-file 직접 로드 → yaml 적용 확실.
             'use_composition': 'False',
             'container_name': 'nav2_container',
         }.items(),
@@ -415,9 +311,6 @@ def _launch(context, *_args, **_kwargs):
         }],
     )
 
-    # ── VGGT-SLAM bridge (Python 3.10 side) ─────────────────────────────────
-    # Heavy SLAM solver runs in a separate Python 3.11 venv process,
-    # spawned by the bridge via subprocess. See vggt_slam_server.py.
     vggt_slam_params = os.path.join(pkg, 'config', 'vggt_slam_params.yaml')
     vggt_slam_overrides = {
         'use_sim_time': True,
@@ -443,31 +336,101 @@ def _launch(context, *_args, **_kwargs):
         parameters=[vggt_slam_params, vggt_slam_overrides],
     )
 
-    elevator_node = Node(
-        package='gz_nav_sim',
-        executable='elevator_teleport.py',
-        name='elevator_teleport',
-        output='screen',
-        parameters=[{
-            'use_sim_time': True,
-            'robot_model': robot_model,
-            # rtabmap 사용 시 .db swap, 아니면 slam_toolbox 라이프사이클 fresh restart.
-            'slam_backend': 'rtabmap' if use_rtabmap else 'slam_toolbox',
-        }],
-    )
-
-    # ── RTAB-Map (RGB-D SLAM, multi-session via .db) ────────────────────────
-    # D456 model: RGB는 /camera/image_raw, depth는 /d456/depth/image_raw 로
-    # 분리되어 있으므로 양쪽 다 remap. /scan 은 보조 proximity 입력.
-    # `direct_depth` 와 `robot_model` 가 제대로 세팅된 d456 프리셋 가정.
     rtabmap_params = os.path.join(pkg, 'config', 'rtabmap_params.yaml')
-    # 빈 문자열이면 RTAB-Map 이 in-memory 모드(저장 안 됨) — 기본 경로로 폴백.
     rtabmap_db_path = rtabmap_db or os.path.expanduser('~/.ros/rtabmap.db')
     rtabmap_overrides = {
         'use_sim_time': True,
         'database_path': rtabmap_db_path,
+        'frame_id': 'base_link',
+        'map_frame_id': 'map',
+        'odom_frame_id': 'odom',
+        'publish_tf': True,
+        'subscribe_depth': True,
+        'subscribe_rgb': True,
+        'subscribe_rgbd': False,
+        'subscribe_scan': True,
+        'approx_sync': True,
+        'approx_sync_max_interval': 3.0,
+        'queue_size': 100,
+        'sync_queue_size': 100,
+        'topic_queue_size': 100,
+        'wait_for_transform': 2.0,
+        'qos_image': 2,
+        'qos_camera_info': 1,
+        'qos_scan': 1,
+        'qos_odom': 1,
         'Mem/IncrementalMemory': 'false' if rtabmap_localization else 'true',
+        'Mem/InitWMWithAllNodes': 'true',
+        'Rtabmap/StartNewMapOnLoopClosure': 'false',
+        'Rtabmap/DetectionRate': '1.0',
+        'Rtabmap/CreateIntermediateNodes': 'true',
+        'Reg/Strategy': '1',
+        'Reg/Force3DoF': 'true',
+        'Icp/PointToPlane': 'false',
+        'Icp/MaxCorrespondenceDistance': '0.1',
+        'Icp/Iterations': '10',
+        'Icp/Epsilon': '0.001',
+        'Icp/VoxelSize': '0.05',
+        'Optimizer/Strategy': '1',
+        'Optimizer/Iterations': '20',
+        'RGBD/OptimizeFromGraphEnd': 'false',
+        'RGBD/AngularUpdate': '0.2',
+        'RGBD/LinearUpdate': '0.2',
+        'RGBD/NeighborLinkRefining': 'true',
+        'RGBD/ProximityBySpace': 'true',
+        'RGBD/ProximityMaxGraphDepth': '50',
+        'RGBD/ProximityPathMaxNeighbors': '10',
+        'Mem/UseOdomFeatures': 'false',
+        'Mem/DepthCompressionFormat': '.rvl',
+        'Mem/ImageCompressionFormat': '.jpg',
+        'Mem/RawDescriptorsKept': 'false',
+        'Kp/MaxFeatures': '0',
+        'Mem/MemoryThr': '5000',
+        'Mem/ReduceGraph': 'true',
+        'Rtabmap/MaxRetrieved': '2',
+        'Grid/Sensor': '0',
+        'Grid/RangeMax': '10.0',
+        'Grid/CellSize': '0.05',
+        'Grid/3D': 'false',
+        'Grid/RayTracing': 'true',
+        'Grid/FootprintHeight': '0.4',
+        'Grid/MaxObstacleHeight': '1.5',
+        'Grid/NormalsSegmentation': 'false',
     }
+
+    icp_odometry_node = Node(
+        package='rtabmap_odom',
+        executable='icp_odometry',
+        name='icp_odometry',
+        namespace='rtabmap',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'frame_id': 'base_link',
+            'odom_frame_id': 'odom',
+            'publish_tf': False,
+            'subscribe_scan': True,
+            'subscribe_scan_cloud': False,
+            'approx_sync': True,
+            'queue_size': 30,
+            'sync_queue_size': 30,
+            'topic_queue_size': 30,
+            'wait_for_transform': 0.2,
+            'qos_scan': 1,
+            'Reg/Force3DoF': 'true',
+            'Reg/Strategy': '1',
+            'Icp/PointToPlane': 'false',
+            'Icp/MaxCorrespondenceDistance': '0.1',
+            'Icp/Iterations': '10',
+            'Icp/Epsilon': '0.001',
+            'Icp/VoxelSize': '0.05',
+        }],
+        remappings=[
+            ('scan', '/scan'),
+            ('odom', '/rtabmap/icp_odom'),
+        ],
+    )
+
     rtabmap_node = Node(
         package='rtabmap_slam',
         executable='rtabmap',
@@ -476,24 +439,27 @@ def _launch(context, *_args, **_kwargs):
         output='screen',
         parameters=[rtabmap_params, rtabmap_overrides],
         remappings=[
-            ('rgb/image',         '/camera/image_raw'),
-            ('rgb/camera_info',   '/camera/camera_info'),
-            ('depth/image',       '/d456/depth/image_raw'),
-            ('scan',              '/scan'),
-            ('odom',              '/odom'),
-            # rtabmap_slam 의 실제 OccupancyGrid publisher 토픽 이름은 'map'.
-            # 네임스페이스 prefix 붙어 /rtabmap/map 이 되니 표준 /map 으로 remap.
-            # (이전엔 'grid_map':=/map 였는데 그 이름은 발행되는 게 아니라 no-op.)
-            ('map',               '/map'),
+            ('scan', '/scan'),
+            ('odom', '/rtabmap/icp_odom'),
+            ('map', '/map'),
+            ('rgb/image', '/camera/image_raw'),
+            ('rgb/camera_info', '/camera/camera_info'),
+            ('depth/image', '/d456/depth/image_raw'),
         ],
-        # rtabmap 은 시작 시 DB 가 있으면 자동 append, 없으면 새로 생성.
-        # `--delete_db_on_start` 인자 미지정 → 멀티세션 자연스럽게 동작.
         arguments=['--ros-args', '--log-level', 'rtabmap:=info'],
     )
 
-    # nvblox depth 입력 분기:
-    #   direct_depth=true (D456 native depth → nvblox 직접): /d456/depth/*
-    #   direct_depth=false (DA3/VGGT 출력 사용): /camera/depth/*
+    twist_mux_node = Node(
+        package='twist_mux',
+        executable='twist_mux',
+        name='twist_mux',
+        output='screen',
+        parameters=[os.path.join(pkg, 'config', 'twist_mux.yaml')],
+        remappings=[
+            ('cmd_vel_out', '/cmd_vel_mux'),
+        ],
+    )
+
     if direct_depth:
         nvblox_depth_topic = '/d456/depth/image_raw'
         nvblox_depth_info_topic = '/d456/depth/camera_info'
@@ -512,7 +478,6 @@ def _launch(context, *_args, **_kwargs):
         }.items(),
     )
 
-    # nvblox mesh → glTF(Draco) republisher — Foxglove SceneUpdate로 30~50배 압축
     nvblox_gltf_node = Node(
         package='gz_nav_sim',
         executable='nvblox_mesh_to_gltf.py',
@@ -522,17 +487,14 @@ def _launch(context, *_args, **_kwargs):
             'use_sim_time': True,
             'input_topic': '/nvblox_node/mesh',
             'output_topic': '/nvblox_node/scene',
-            # nvblox는 메모리 위해 map_clearing_radius_m 안쪽만 유지하지만
-            # Foxglove에선 누적된 mesh 영구 보관 (지나간 곳도 계속 보임)
             'accumulate_only': True,
         }],
     )
 
-    # ── Isaac Sim bridge (gazebo backend 대체) ───────────────────────────
     isaac_robot_id = int(LaunchConfiguration('isaac_robot_id').perform(context).strip() or '0')
     isaac_camera_link = (LaunchConfiguration('isaac_camera_link')
                          .perform(context).strip() or 'head_tilt')
-    isaac_bridge_node = Node(
+    isaac_zmq_bridge_node = Node(
         package='gz_nav_sim',
         executable='isaac_bridge.py',
         name='isaac_bridge',
@@ -551,96 +513,97 @@ def _launch(context, *_args, **_kwargs):
             'camera_link_name': isaac_camera_link,
         }],
     )
+    xlerobot_v2_bridge_node = Node(
+        package='gz_nav_sim',
+        executable='xlerobot_v2_bridge.py',
+        name='xlerobot_v2_bridge',
+        output='screen',
+        parameters=[{
+            'cmd_rate_hz': 20.0,
+            'odom_frame': 'odom',
+            'base_frame': 'base_link',
+            'camera_optical_frame': 'camera_optical_frame',
+            'scan_frame': 'base_link',
+            'cmd_vel_in_topic': '/cmd_vel_mux',
+            'cmd_vel_out_topic': '/xlerobot/cmd_vel',
+            'odom_in_topic': '/xlerobot/odom',
+            'odom_out_topic': '/odom',
+            'rgb_image_in_topic': '/xlerobot/head/d456/color/image_raw',
+            'rgb_compressed_image_in_topic': '/xlerobot/head/d456/color/image',
+            'rgb_info_in_topic': '/xlerobot/head/d456/color/camera_info',
+            'rgb_image_out_topic': '/camera/image_raw',
+            'rgb_compressed_out_topic': '/camera/image_raw/compressed',
+            'rgb_info_out_topic': '/camera/camera_info',
+            'depth_image_in_topic': '/xlerobot/head/d456/depth/image_rect_raw',
+            'depth_compressed_image_in_topic': '/xlerobot/head/d456/depth/image',
+            'depth_info_in_topic': '/xlerobot/head/d456/depth/camera_info',
+            'depth_image_out_topic': '/d456/depth/image_raw',
+            'depth_info_out_topic': '/d456/depth/camera_info',
+            'scan_in_topic': '/xlerobot/scan',
+            'scan_out_topic': '/scan',
+        }],
+    )
 
     launch_actions = [
         SetEnvironmentVariable('FASTDDS_BUILTIN_TRANSPORTS', 'UDPv4'),
+        SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '1'),
     ]
-    if sim_backend == 'gazebo':
-        launch_actions.extend([
-            SetEnvironmentVariable('GAZEBO_MODEL_PATH', model_paths),
-            SetEnvironmentVariable('GAZEBO_RESOURCE_PATH', resource_paths),
-            SetEnvironmentVariable('GAZEBO_PLUGIN_PATH', plugin_paths),
-            SetEnvironmentVariable('GAZEBO_MEDIA_PATH', media_paths),
-            # DISPLAY는 xvfb-run이 자식에 inject한 값 그대로 사용 (보통 :100, :101...).
-            # 이전에 ':99'로 override 했었는데 xvfb-run -a 자유 display 선택 결과와
-            # 충돌 → gzserver "xcb_connection_has_error" → CameraSensor render 불가.
-            gzserver,
-        ])
-        if not headless:
-            launch_actions.append(gzclient)
-    else:
-        # Isaac Sim 백엔드: Gazebo / xvfb / vglrun 모두 우회. 외부 sim_server
-        # (xlerobot_v1 ZMQ) 가 이미 떠있다는 가정. ROS 토픽 인터페이스는 동일.
+    if isaac_transport == 'zmq_v1':
         launch_actions.append(LogInfo(
-            msg=f'[sim_nav] Isaac backend: bridging to tcp://{isaac_host}:5555/5556/5557'))
-        launch_actions.append(isaac_bridge_node)
-    launch_actions.append(base_footprint_tf)
-    # base_link → camera_frame: gazebo 는 static, isaac 는 isaac_bridge 가
-    # tf.links.<id> 에서 dynamic 으로 발행하므로 여기서 추가하면 TF 충돌.
-    if sim_backend == 'gazebo':
-        launch_actions.append(front_camera_frame_tf)
+            msg=f'[sim_nav] Isaac backend: ZMQ v1 bridge to tcp://{isaac_host}:5555/5556/5557'))
+        launch_actions.append(isaac_zmq_bridge_node)
+    else:
+        launch_actions.append(LogInfo(
+            msg='[sim_nav] Isaac backend: XLeRobot v2 ROS topics under /xlerobot'))
+        launch_actions.append(xlerobot_v2_bridge_node)
+
     launch_actions.extend([
+        base_footprint_tf,
+        front_camera_frame_tf,
         front_camera_optical_tf,
         pointcloud_visualizer_node,
         trajectory_path_node,
+        twist_mux_node,
     ])
     if use_slam_toolbox:
         launch_actions.extend([slam, slam_configure, slam_activate])
     if use_rtabmap:
-        # Gazebo 카메라/라이다가 첫 프레임 publish 한 뒤 띄워야 sync timeout 회피.
-        launch_actions.append(TimerAction(period=4.0, actions=[rtabmap_node]))
-    launch_actions.extend([
-        nav2_container,
-        navigation,
-    ])
+        launch_actions.append(TimerAction(period=4.0, actions=[icp_odometry_node]))
+        launch_actions.append(TimerAction(period=6.0, actions=[rtabmap_node]))
+    launch_actions.extend([nav2_container, navigation])
     if use_da3:
         launch_actions.append(da3_node)
     if use_semantic_vlm:
-        # Camera/depth publishers need a short warm-up before VLM samples frames.
         launch_actions.append(TimerAction(period=12.0, actions=[semantic_vlm_node]))
     elif LaunchConfiguration('use_semantic_vlm').perform(context).lower() == 'true':
         launch_actions.append(LogInfo(msg='[sim_nav] semantic VLM disabled'))
     if use_semantic_ocr:
-        # Isaac bridge publishes /camera/image_raw + /d456/depth/* identically to
-        # the gazebo path, so OCR works for both backends.
         launch_actions.append(TimerAction(period=10.0, actions=[semantic_ocr_node]))
     if use_nvblox:
-        # depth가 뜬 뒤에 nvblox를 띄워야 첫 프레임 누락이 없음
         launch_actions.append(TimerAction(period=8.0, actions=[nvblox_include]))
-        # mesh→gltf republisher는 nvblox /mesh 토픽 뜬 뒤
         launch_actions.append(TimerAction(period=10.0, actions=[nvblox_gltf_node]))
     elif LaunchConfiguration('use_nvblox').perform(context).lower() == 'true':
         launch_actions.append(LogInfo(msg='[sim_nav] nvblox_ros not found; continuing without nvblox'))
     if use_vggt_slam:
-        # VGGT-SLAM은 서버 프로세스를 spawn해야 해서 가제보 sensor가 뜬 후에 시작
         launch_actions.append(TimerAction(period=5.0, actions=[vggt_slam_node]))
-    if use_elevator and sim_backend == 'gazebo':
-        launch_actions.append(elevator_node)
-    elif use_elevator and sim_backend == 'isaac':
-        launch_actions.append(LogInfo(
-            msg='[sim_nav] elevator disabled in isaac backend (single-scene assumption)'))
     if foxglove:
         launch_actions.append(Node(
-            package='foxglove_bridge', executable='foxglove_bridge',
+            package='foxglove_bridge',
+            executable='foxglove_bridge',
             parameters=[{
                 'port': 8765,
                 'use_sim_time': True,
                 'max_qos_depth': 5,
-                'send_buffer_limit': 10_000_000,
+                'send_buffer_limit': 100_000_000,
                 'use_compression': True,
-                # raw 카메라/depth 는 12 MB/s × 채널 → loopback 폭주.
-                # 화이트리스트로 가벼운 토픽만 advertise. raw 보고 싶으면
-                # /camera/image_raw 직접 추가하거나 use_compressed_topic 활용.
                 'topic_whitelist': [
                     '/odom', '/scan', '/map', '/map_metadata', '/pose',
                     '/tf', '/tf_static', '/clock',
                     '/cmd_vel', '/cmd_vel_nav', '/cmd_vel_teleop',
                     '/camera/image_raw/compressed', '/camera/camera_info',
-                    # nvblox 3D mesh (use_nvblox:=true 일 때만)
-                    '/nvblox_node/scene',
+                    '/rtabmap/cloud_map', '/rtabmap/cloud_ground', '/rtabmap/cloud_obstacles',
                     '/local_costmap/costmap', '/global_costmap/costmap',
                     '/plan', '/plan_smoothed', '/local_plan',
-                    '/gazebo/model_states', '/gazebo/link_states',
                     '/semantic_vlm/detections', '/semantic_vlm/markers',
                     '/semantic_vlm/image_annotations',
                     '/semantic_ocr/detections', '/semantic_ocr/markers',
@@ -649,30 +612,9 @@ def _launch(context, *_args, **_kwargs):
             }],
             output='screen',
         ))
-        if image_transport_available and (use_vggt_slam or robot_model == 'robot'):
-            # D456 Gazebo camera already publishes /camera/image_raw/compressed.
-            # Keep the extra republisher only for the mono-RGB robot or when
-            # VGGT-SLAM explicitly depends on this topic path.
-            launch_actions.append(Node(
-                package='image_transport', executable='republish',
-                name='image_compressor',
-                arguments=['raw', 'compressed'],
-                remappings=[
-                    ('in', '/camera/image_raw'),
-                    ('out/compressed', '/camera/image_raw/compressed'),
-                ],
-                output='log',
-            ))
-        else:
-            launch_actions.append(LogInfo(
-                msg='[sim_nav] skipping compressed image republisher '
-                    '(D456 already publishes compressed image or image_transport unavailable)'
-            ))
     elif LaunchConfiguration('use_foxglove').perform(context).lower() == 'true':
         launch_actions.append(LogInfo(msg='[sim_nav] foxglove_bridge not found; continuing without Foxglove'))
     if use_explore:
-        # Legacy frontier exploration stack: wait until Nav2 is active, then start
-        # explore_lite against the SLAM /map topic.
         launch_actions.append(ExecuteProcess(
             cmd=[
                 'bash', '-lc',
@@ -700,25 +642,21 @@ def _launch(context, *_args, **_kwargs):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('sim_backend', default_value='isaac',
-                              description='Sim backend: isaac (기본, xlerobot_v1 ZMQ via isaac_host) | gazebo (legacy, 잔여 정리 후 비활성)'),
-        DeclareLaunchArgument('allow_gazebo', default_value='false',
-                              description='gazebo backend 명시 허용. 기본 false — 사고로 gzserver 가 뜨는 것 차단.'),
         DeclareLaunchArgument('isaac_host', default_value='127.0.0.1',
-                              description='Isaac sim_server 호스트. ZMQ 5555/5556/5557 으로 connect.'),
-        DeclareLaunchArgument('isaac_robot_id', default_value='1',
-                              description='Isaac fleet 안에서 우리 ROS 스택이 바인딩할 robot index (0..num_robots-1).'),
+                              description='ZMQ v1 사용 시 Isaac sim_server 호스트. rosbridge_v2 에서는 사용하지 않음.'),
+        DeclareLaunchArgument('isaac_transport', default_value='rosbridge_v2',
+                              description='Isaac 연결 방식: rosbridge_v2(/xlerobot ROS topics) | zmq_v1(legacy sim_server).'),
+        DeclareLaunchArgument('isaac_robot_id', default_value='0',
+                              description='Isaac fleet 안에서 우리 ROS 스택이 바인딩할 robot index.'),
         DeclareLaunchArgument('isaac_camera_link', default_value='head_tilt',
-                              description='Isaac tf.links.<id> 안에서 카메라가 mount된 링크 이름. '
-                                          'isaac_bridge 가 base_link→camera_frame TF 를 이 링크 포즈로 dynamic 발행.'),
-        DeclareLaunchArgument('headless',    default_value='false',  description='GUI 없이 실행'),
-        DeclareLaunchArgument('use_foxglove',default_value='true',  description='Foxglove 브리지'),
+                              description='ZMQ v1 tf.links.<id> 안에서 카메라가 mount된 링크 이름.'),
+        DeclareLaunchArgument('use_foxglove', default_value='true', description='Foxglove 브리지'),
         DeclareLaunchArgument('use_da3', default_value='false', description='DA3 RGB depth wrapper'),
-        DeclareLaunchArgument('use_nvblox', default_value='false', description='nvblox 3D mapping 노드 (isaac_ros_nvblox 필요)'),
-        DeclareLaunchArgument('use_vggt_slam', default_value='false', description='VGGT-SLAM 브리지 (Python 3.11 venv 서버 spawn)'),
+        DeclareLaunchArgument('use_nvblox', default_value='false', description='nvblox 3D mapping 노드'),
+        DeclareLaunchArgument('use_vggt_slam', default_value='false', description='VGGT-SLAM 브리지'),
         DeclareLaunchArgument('use_semantic_vlm', default_value='false', description='RGB-D 기반 semantic VLM 노드'),
         DeclareLaunchArgument('use_semantic_ocr', default_value='true', description='RGB 기반 semantic OCR 노드'),
-        DeclareLaunchArgument('use_explore', default_value='false', description='Legacy frontier exploration (explore_lite) 자동 시작'),
+        DeclareLaunchArgument('use_explore', default_value='false', description='Legacy frontier exploration 자동 시작'),
         DeclareLaunchArgument('vlm_task_mode', default_value='scene_description',
                               description='semantic VLM mode: scene_description|text_objects'),
         DeclareLaunchArgument('vlm_model', default_value='Qwen/Qwen2.5-VL-3B-Instruct',
@@ -750,22 +688,17 @@ def generate_launch_description():
         DeclareLaunchArgument('ocr_track_max_gap_frames', default_value='60',
                               description='Maximum RGB frame gap for same-sign OCR track association'),
         DeclareLaunchArgument('ocr_track_max_depth_diff_m', default_value='0.0',
-                              description='Future RGB-D hook: reject same-sign associations above this depth gap; 0 disables'),
+                              description='Reject same-sign associations above this depth gap; 0 disables'),
         DeclareLaunchArgument('use_slam_toolbox', default_value='true',
                               description='2D LiDAR slam_toolbox 활성화. use_rtabmap=true 면 false 로 둘 것.'),
         DeclareLaunchArgument('use_rtabmap', default_value='false',
-                              description='RTAB-Map RGB-D SLAM (멀티세션, .db 영속). slam_toolbox 와 배타.'),
+                              description='RTAB-Map RGB-D SLAM. slam_toolbox 와 배타.'),
         DeclareLaunchArgument('rtabmap_localization', default_value='false',
-                              description='True면 Mem/IncrementalMemory=false (기존 .db 위 로컬라이제이션 전용 모드).'),
+                              description='True면 Mem/IncrementalMemory=false.'),
         DeclareLaunchArgument('rtabmap_db', default_value='',
-                              description='RTAB-Map .db 파일 경로 override. 비어 있으면 ~/.ros/rtabmap.db 자동.'),
-        DeclareLaunchArgument('use_elevator', default_value='true', description='엘리베이터 텔레포트 노드'),
-        DeclareLaunchArgument('robot_model', default_value='robot_d456',
-                              description='Robot 모델 디렉토리. "robot"(mono RGB 0.5m) | "robot_d456"(D456 depth+RGB 0.8m)'),
-        DeclareLaunchArgument('world', default_value='combined',
-                              description='World: combined(office+hospital, 35K-line, 무거움) | office | hospital'),
+                              description='RTAB-Map .db 파일 경로 override.'),
         DeclareLaunchArgument('direct_depth', default_value='true',
-                              description='True면 D456 native depth(/d456/depth/*)를 nvblox 입력으로 직접 사용. DA3/VGGT 우회.'),
+                              description='True면 D456 native depth(/d456/depth/*)를 사용.'),
         DeclareLaunchArgument('da3_model_id', default_value='',
                               description='Optional DA3 model override; empty uses YAML'),
         DeclareLaunchArgument('da3_process_res', default_value='',
@@ -781,9 +714,9 @@ def generate_launch_description():
         DeclareLaunchArgument('da3_point_cloud_frame', default_value='',
                               description='Optional target TF frame override for published point cloud'),
         DeclareLaunchArgument('vggt_slam_server_python', default_value='',
-                              description='Python 3.11 interpreter for VGGT-SLAM server (empty uses YAML)'),
+                              description='Python 3.11 interpreter for VGGT-SLAM server'),
         DeclareLaunchArgument('vggt_slam_server_script', default_value='',
-                              description='Path to vggt_slam_server.py (empty uses YAML)'),
+                              description='Path to vggt_slam_server.py'),
         DeclareLaunchArgument('vggt_slam_submap_size', default_value='',
                               description='Frames per submap override'),
         DeclareLaunchArgument('vggt_slam_min_disparity', default_value='',

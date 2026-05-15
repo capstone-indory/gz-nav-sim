@@ -1,11 +1,11 @@
-"""nvblox 3D mapping node — RGB-D depth + Gazebo RGB input.
+"""nvblox 3D mapping node — RGB-D depth + XLeRobot RGB input.
 
 분리된 include용 런치. sim_nav.launch.py에서 use_nvblox:=true로 포함.
 
 입력 토픽:
   /d456/depth/image_raw       sensor_msgs/Image (D456 native depth)
   /d456/depth/camera_info     sensor_msgs/CameraInfo
-  /camera/image_raw           sensor_msgs/Image (Gazebo RGB)
+  /camera/image_raw           sensor_msgs/Image (XLeRobot RGB)
   /camera/camera_info         sensor_msgs/CameraInfo
 
 출력 (nvblox_node 자체 토픽):
@@ -32,7 +32,6 @@ def generate_launch_description():
     color_topic = LaunchConfiguration('color_topic')
     color_info_topic = LaunchConfiguration('color_info_topic')
 
-    # CUDA_VISIBLE_DEVICES=1 — gazebo (vglrun egl0 = GPU0) 와 분리해 contention 회피.
     # GPU 1 (RTX 3090, 24GB) 단독 점유.
     nvblox_node = Node(
         package='nvblox_ros',

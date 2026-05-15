@@ -1,34 +1,39 @@
-# Preset: D456 + SLAM Toolbox + nvblox (Isaac Sim 백엔드)
-# 라이다 기반 2D SLAM (slam_toolbox) 가 map→odom TF 와 /map 을 발행.
-# nvblox 는 그 TF 위에 depth 를 누적해 3D mesh 시각화.
+# Preset: D456 RGB-D + SLAM Toolbox (Isaac Sim v2 백엔드)
+# XLeRobot Hospital Isaac 앱이
+# rosbridge_server 를 통해 /xlerobot 네임스페이스로 센서/오도를 publish 한다.
 #
-# Isaac sim_server 호스트는 ISAAC_HOST 환경변수.
-#   ISAAC_HOST=100.80.87.68 ./run_multisession_slam.sh isaac
-# Multi-robot fleet 중 어느 robot 을 운전할지는 ISAAC_ROBOT_ID.
-#   ISAAC_ROBOT_ID=1 ./run_multisession_slam.sh isaac
+# ROS PC에서 rosbridge_server 를 먼저 띄우고, Isaac 앱은 그 rosbridge 에 붙인다.
+# 이 ROS 스택은 같은 ROS graph 안의 /xlerobot 토픽을 구독/발행한다.
+#
+# Legacy ZMQ 서버가 필요하면 launch arg 를 isaac_transport:=zmq_v1 로 바꾸고
+# ISAAC_HOST / ISAAC_ROBOT_ID 를 사용한다.
 PRESET_NAME="d456_isaac"
-PRESET_DESC="D456 + SLAM Toolbox (Isaac Sim, ZMQ bridge)"
+PRESET_DESC="D456 + SLAM Toolbox (XLeRobot Hospital Isaac v2, /xlerobot ROS topics)"
 
 LAUNCH_ARGS=(
-  sim_backend:=isaac
+  isaac_transport:=${ISAAC_TRANSPORT:-rosbridge_v2}
   isaac_host:=${ISAAC_HOST:-127.0.0.1}
   isaac_robot_id:=${ISAAC_ROBOT_ID:-1}
   use_da3:=false
-  # nvblox: SLAM 이 아니라 3D 볼륨 매핑 시각화 — slam_toolbox 의 TF 위에 mesh 만 그림.
-  use_nvblox:=true
+  # nvblox 비활성 — 3D 시각화는 RTAB-Map cloud_map (RGB-D 누적 colored cloud,
+  # /var/indoory/maps/{id}.db 에 같이 영속) 으로 통일. mesh 가 다시 필요해지면 켜면 됨.
+  use_nvblox:=false
   use_vggt_slam:=false
   use_semantic_vlm:=false
-  world:=office
-  # 라이다 우선 SLAM. RTAB-Map 은 사용 안 함.
-  use_rtabmap:=false
-  use_slam_toolbox:=true
-  # Isaac 은 단일 씬: 빌딩 텔레포트 비활성.
-  use_elevator:=false
+  # RTAB-Map scan-only 모드: 라이다만 사용해서 slam_toolbox 와 동일한 시각 품질 +
+  # 멀티세션 .db 영속화. depth/RGB 는 sync timing 이슈로 사용 안 함 (Isaac sim 의
+  # RGB-depth 700ms gap, sub-13% base actuator 등 회피).
+  use_rtabmap:=true
+  rtabmap_localization:=false
+  use_slam_toolbox:=false
   use_foxglove:=true
   use_explore:=false
-  # Gazebo client 가 없으니 의미 없지만 일관성을 위해 남겨둠.
-  headless:=true
-  robot_model:=robot_d456
+  # OCR detection rate 부스트 (default: backend=paddle, interval=5, conf=0.6, scales=1.0,2.0).
+  # 작은 표지판도 catch 위해 confidence 낮추고, 멀리 있는 표지판 위해 zoom scale
+  # 추가, 처리 빈도 늘림. paddle 모듈 없으면 코드가 자동 tesseract fallback.
+  ocr_frame_interval:=2
+  ocr_min_confidence:=0.4
+  ocr_scales:=1.0,1.5,2.0,3.0
   direct_depth:=true
 )
 

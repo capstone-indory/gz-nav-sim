@@ -32,12 +32,23 @@ class MeshToSceneRepublisher(Node):
         self.declare_parameter('frame_id_override', '')
         # true: nvblox가 메모리 절약차 블록을 잘라도 Foxglove에선 누적 유지
         # false: nvblox 삭제를 Foxglove에도 그대로 반영
-        self.declare_parameter('accumulate_only', True)
+        # accumulate_only=true 의 부작용: nvblox 가 block 을 메모리 정리로 잘라도
+        # SceneUpdate 에 deletion 안 발행 → 다운스트림 cache (foxglove / adapter)
+        # 가 _영구 누적_ → 새 client 가 connect 할 때마다 옛 잔재까지 모두 받음 →
+        # 매 새로고침 시 시각 더 더러워지는 현상. default 를 false 로 — nvblox 의
+        # block 정리 신호를 그대로 따라가 cache 가 자연 정리됨.
+        self.declare_parameter('accumulate_only', False)
+        # 단일 SceneUpdate frame 의 대략적 byte 한도. 17~23MB 짜리 single frame은
+        # WebSocket client 들의 default frame size limit (1~10MB) 에 걸려 즉시 끊김.
+        # 한 nvblox callback 에 들어온 블록들을 이 한도 단위로 분할 publish 해야
+        # web 에서 안정적으로 수신 가능. 1MB 면 거의 모든 client 가 받음.
+        self.declare_parameter('max_frame_bytes', 1_000_000)
 
         in_topic = str(self.get_parameter('input_topic').value)
         out_topic = str(self.get_parameter('output_topic').value)
         self._frame_override = str(self.get_parameter('frame_id_override').value).strip()
         self._accumulate_only = bool(self.get_parameter('accumulate_only').value)
+        self._max_frame_bytes = int(self.get_parameter('max_frame_bytes').value)
 
         sub_qos = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1,
                              reliability=ReliabilityPolicy.RELIABLE)
@@ -71,6 +82,8 @@ class MeshToSceneRepublisher(Node):
         update = SceneUpdate()
         frame_id = self._frame_override or msg.header.frame_id
         approx_out = 0
+        # 현재 진행 중인 batch 의 누적 byte. max_frame_bytes 초과 시 publish + reset.
+        batch_bytes = 0
 
         if msg.clear:
             # 전체 리셋 신호. accumulate_only면 무시하고 누적 유지.
@@ -132,12 +145,21 @@ class MeshToSceneRepublisher(Node):
             self._known_block_ids.add(entity_id)
             self._stats['blocks_encoded'] += 1
             # 대략적 출력 크기 (Point=24B, Color=16B, idx=4B per vertex/index)
-            approx_out += n_verts * (24 + 16) + len(block.triangles) * 4
+            entity_bytes = n_verts * (24 + 16) + len(block.triangles) * 4
+            approx_out += entity_bytes
+            batch_bytes += entity_bytes
+
+            # batch 가 한도 초과하면 즉시 flush — 다음 entity 는 새 SceneUpdate 로.
+            # 이래야 single WebSocket frame 이 max_frame_bytes 이하로 유지돼
+            # web client default limit 에 걸리지 않음.
+            if batch_bytes >= self._max_frame_bytes:
+                self._pub.publish(update)
+                update = SceneUpdate()
+                batch_bytes = 0
 
         self._stats['out_bytes'] += approx_out
 
-        # 시간당 변화된 entity/deletion만 publish (incremental).
-        # 늦은 subscriber는 그 이후 변화만 보지만 네트워크 부하 최소.
+        # 마지막 잔여 batch + (entities 없이 deletions 만 있는 케이스 포함) flush.
         if update.entities or update.deletions:
             self._pub.publish(update)
 

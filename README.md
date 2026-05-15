@@ -1,8 +1,8 @@
-# gz-nav-sim
+# XLeRobot Hospital Isaac v2 Navigation Stack
 
-Gazebo Classic 11 + ROS 2 Humble navigation simulation with lidar SLAM,
-D456 RGB-D mapping, Foxglove visualization, semantic OCR, and optional
-semantic VLM inspection.
+ROS 2 Humble navigation stack for the XLeRobot Hospital Isaac Sim v2 app.
+The Isaac app publishes `/xlerobot/*` through `rosbridge_server`; this workspace
+bridges those topics into the local Nav2/SLAM interface.
 
 ## Setup
 
@@ -19,7 +19,7 @@ python3 -m pip install \
   numpy opencv-python pillow \
   paddleocr pytesseract \
   huggingface_hub transformers safetensors accelerate
-colcon build --symlink-install
+colcon build --symlink-install --paths src/gz_nav_sim
 source install/setup.bash
 ```
 
@@ -38,12 +38,11 @@ fallback if PaddleOCR is unavailable.
 
 ```bash
 ros2 launch gz_nav_sim sim_nav.launch.py \
-  headless:=false \
+  isaac_transport:=rosbridge_v2 \
   use_foxglove:=true \
-  robot_model:=robot_d456 \
   direct_depth:=true \
   use_da3:=false \
-  use_nvblox:=true \
+  use_nvblox:=false \
   use_semantic_ocr:=true \
   ocr_frame_interval:=5 \
   ocr_min_confidence:=0.6 \
@@ -65,16 +64,14 @@ outputs are not unioned with OCR:
 
 Foxglove connects to `ws://localhost:8765`.
 
-D456 publishes RGB on `/camera/image_raw`, depth on `/d456/depth/image_raw`,
-and depth point cloud on `/d456/depth/points`.
+The v2 bridge maps:
 
-## Convenience Script
+- `/xlerobot/cmd_vel` from `/cmd_vel_mux`
+- `/xlerobot/odom` to `/odom`
+- `/xlerobot/scan` to `/scan`
+- `/xlerobot/head/d456/color/image_raw` to `/camera/image_raw`
+- `/xlerobot/head/d456/depth/image_rect_raw` to `/d456/depth/image_raw`
 
 ```bash
-./run_d456_rgbd.sh
+./run_multisession_slam.sh
 ```
-
-The script starts Xvfb, launches D456 RGB-D + nvblox + Foxglove, and enables
-semantic OCR. Override OCR with `OCR_FRAME_INTERVAL`, `OCR_MIN_CONFIDENCE`,
-`OCR_SCALES`, `OCR_FLOOR_HINT`, and `OCR_FLOOR_PRIOR_MODE`. Enable VLM
-separately with `USE_SEMANTIC_VLM=true`.

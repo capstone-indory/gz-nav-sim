@@ -5,8 +5,8 @@
 #   ./bench/run.sh <preset> [--record] [--note "..."] [--duration <sec>] [--explore]
 #
 # 예:
-#   ./bench/run.sh da3_nvblox --record --note "baseline 1차"
-#   ./bench/run.sh vggt_only --duration 180 --explore
+#   ./bench/run.sh d456_isaac --record --note "isaac v2 1차"
+#   ./bench/run.sh d456_isaac --duration 180 --explore
 #
 # preset = bench/presets/<name>.sh 파일명에서 .sh 제외
 #
@@ -23,6 +23,11 @@
 #     └ notes.md            # --note 내용
 
 set -e
+
+# DDS 격리 — 같은 DOMAIN 의 외부 ROS 노드가 토픽 leak 하는 것 차단.
+# run_multisession_slam.sh 가 이미 export 했으면 그대로 상속, 아니면 default.
+export ROS_LOCALHOST_ONLY=${ROS_LOCALHOST_ONLY:-1}
+export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BENCH_DIR="${REPO_ROOT}/bench"
@@ -92,12 +97,6 @@ source install/setup.bash
 export ROS_LOG_DIR="${RUN_DIR}/log"
 mkdir -p "${ROS_LOG_DIR}"
 
-# X server는 xvfb-run으로 launch에 wrap.
-# 직접 Xvfb 관리 (이전): X server :99 mid-run crash 두 번 발생 (XIO error 33).
-# xvfb-run -a: 자유 display 자동 선택, command 종료 시 자동 cleanup.
-# DISPLAY는 xvfb-run이 자식 프로세스에 자동 inject.
-XVFB_PID=""  # 더 이상 직접 spawn 안 함 (cleanup 호환용 빈 변수)
-
 # ── ros2 bag record (background) ─────────────────────────────────────
 BAG_PID=""
 if [ "${RECORD}" = "true" ] && [ ${#RECORD_TOPICS[@]} -gt 0 ]; then
@@ -141,7 +140,6 @@ cleanup() {
     echo "[bench] shutting down..."
     [ -n "${BAG_PID}" ] && kill -INT "${BAG_PID}" 2>/dev/null && wait "${BAG_PID}" 2>/dev/null || true
     # setsid로 spawn했으므로 LAUNCH_PID = 새 process group의 leader (PGID).
-    # xvfb-run은 SIGINT를 자식에 forward 안 하므로 PGID에 직접 SIGTERM → 전 자식 동시 종료.
     # 15초 grace: DA3 inference cycle이 길면 (publish 6초+) 5초로는 cuda context
     # 정리 못 함 → SIGKILL되며 GPU 메모리 leak 발생 (nvidia-smi에 process 없는데 GB 잔여).
     if [ -n "${LAUNCH_PID}" ]; then
@@ -159,7 +157,7 @@ cleanup() {
     # PGID kill을 빠져나가는 경우: Python 노드가 SIGTERM handler로 shutdown 중
     # block + SIGKILL 타이밍 놓침 → parent 죽으면 init(sleep infinity)이 adopt →
     # 3일 넘게 살아있으며 cmd_vel 등 topic에 계속 publish (옛날 데이터 유령).
-    # 과거 elevator_teleport 5개, vggt_slam_bridge가 이렇게 남는 사고 있었음.
+    # 과거 vggt_slam_bridge가 이렇게 남는 사고 있었음.
     # 현 run의 자식은 PGID kill에서 이미 정리됐으니 name match 남은 건 전부 유령.
     for pat in \
         'ros2 launch explore_lite' \
@@ -169,14 +167,10 @@ cleanup() {
         'da3_depth_node' \
         'nvblox_node' \
         'nvblox_mesh_to_gltf' \
-        'elevator_teleport' \
         'foxglove_bridge' \
         'async_slam_toolbox_node' \
-        'gzserver' \
-        'gzclient' \
         'component_container_isolated.*nav2' \
-        'xvfb-run' \
-        'Xvfb'; do
+        'xlerobot_v2_bridge'; do
         pkill -KILL -f "$pat" 2>/dev/null || true
     done
     # DDS shm + launch params 잔여 정리 (다음 run이 깨끗하게 시작되도록)
@@ -206,32 +200,11 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # ── launch 실행 ──────────────────────────────────────────────────────
-# xvfb-run -a: 자유 display 자동 + command 종료 시 자동 cleanup.
-# vglrun -d egl1: GPU 1 EGL 경로. CUDA_VISIBLE_DEVICES=1 와 일치 — 모든 GPU 작업이
-# GPU 1 단독 (RTX 3090). GPU 0 은 다른 작업 가능하도록 비워둠.
-USE_ISAAC=false
-for arg in "${LAUNCH_ARGS[@]}"; do
-    [[ "$arg" == "sim_backend:=isaac" ]] && USE_ISAAC=true
-done
-
-if [ "$USE_ISAAC" = true ]; then
-    echo "[bench] Isaac backend → xvfb/vglrun 우회 (외부 sim_server 가 렌더 담당)"
-    echo "[bench] launching: ros2 launch gz_nav_sim sim_nav.launch.py ${LAUNCH_ARGS[*]}"
-    echo "[bench] ROS_LOG_DIR=${ROS_LOG_DIR}"
-    setsid ros2 launch gz_nav_sim sim_nav.launch.py "${LAUNCH_ARGS[@]}" \
-        < /dev/null > "${RUN_DIR}/combined.log" 2>&1 &
-    LAUNCH_PID=$!
-else
-    echo "[bench] launching via xvfb-run on GPU 1: ros2 launch gz_nav_sim sim_nav.launch.py ${LAUNCH_ARGS[*]}"
-    echo "[bench] ROS_LOG_DIR=${ROS_LOG_DIR}"
-    # setsid: 새 session + process group 리더로 spawn. LAUNCH_PID == PGID.
-    # 종료 시 kill -- -$LAUNCH_PID로 xvfb-run+vglrun+ros2 launch+모든 노드 한번에 종료.
-    CUDA_VISIBLE_DEVICES=1 setsid xvfb-run -a -s "-screen 0 1280x1024x24" \
-        vglrun -d egl1 \
-        ros2 launch gz_nav_sim sim_nav.launch.py "${LAUNCH_ARGS[@]}" \
-        < /dev/null > "${RUN_DIR}/combined.log" 2>&1 &
-    LAUNCH_PID=$!
-fi
+echo "[bench] launching Isaac v2 stack: ros2 launch gz_nav_sim sim_nav.launch.py ${LAUNCH_ARGS[*]}"
+echo "[bench] ROS_LOG_DIR=${ROS_LOG_DIR}"
+setsid ros2 launch gz_nav_sim sim_nav.launch.py "${LAUNCH_ARGS[@]}" \
+    < /dev/null > "${RUN_DIR}/combined.log" 2>&1 &
+LAUNCH_PID=$!
 
 # --explore: Nav2 lifecycle ACTIVE까지 대기 후 explore_lite 자동 시작
 # (action 토픽만 보이면 lifecycle은 아직 inactive일 수 있어 첫 goal에서 SIGSEGV 위험)

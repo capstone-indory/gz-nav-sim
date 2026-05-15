@@ -48,7 +48,7 @@
     maximum_sensor_message_queue_length: 30
 
     # ── QoS ─────────────────────────────────────────────────────────────
-    # Gazebo camera and nvblox bridge both work with system default QoS here.
+    # XLeRobot camera bridge and nvblox both work with system default QoS here.
     depth_qos: "SYSTEM_DEFAULT"
     color_qos: "SYSTEM_DEFAULT"
 

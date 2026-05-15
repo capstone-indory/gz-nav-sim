@@ -961,7 +961,7 @@ class Da3DepthNode(Node):
     def _extract_lidar_xy_base(self, scan: LaserScan) -> Optional[np.ndarray]:
         """LaserScan → (N, 2) 점 in base_link frame.
 
-        Gazebo robot SDF에서 라이다가 base_link 기준 (0,0,0.1) 오프셋 + 회전 없음
+        XLeRobot stack에서 라이다가 base_link 기준 오프셋 + 회전 없음으로 들어온다고 가정
         → x,y 그대로 base_link 평면 좌표. (z=0.1 offset은 2D 슬라이스에 무관)
         """
         if scan is None or len(scan.ranges) == 0:
@@ -1308,7 +1308,7 @@ class Da3DepthNode(Node):
                 msg_text = "Model loading..."
             elif last_cam_ago > 3.0:
                 level = DiagnosticStatus.ERROR
-                msg_text = f"No camera input for {last_cam_ago:.1f}s (Gazebo stall?)"
+                msg_text = f"No camera input for {last_cam_ago:.1f}s"
             elif last_chunk_ago > 5.0 and self._total_chunks > 0:
                 level = DiagnosticStatus.ERROR
                 msg_text = f"Inference stalled: no chunk for {last_chunk_ago:.1f}s"

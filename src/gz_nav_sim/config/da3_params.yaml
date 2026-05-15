@@ -60,7 +60,7 @@ da3_depth_node:
     world_pc_voxel_size: 0.05     # voxel down-sample (0=비활성)
 
     # Radius outlier filter — KDTree 기반 isolated point 제거.
-    # CPU contention 상황 (DA3 + nvblox + Gazebo 동시)에서 KDTree build/query가
+    # CPU contention 상황 (DA3 + nvblox 동시)에서 KDTree build/query가
     # chunk당 1~9초 잡아 chunk rate를 0.4 Hz 이하로 묶음.
     # 끔 → edge bleeding 점이 약간 늘 수 있지만 nvblox TSDF가 흡수 가능.
     # voxel down-sample (world_pc_voxel_size)과 z-score outlier가 일부 보완.

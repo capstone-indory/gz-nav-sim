@@ -1,0 +1,25 @@
+twist_mux:
+  ros__parameters:
+    use_sim_time: true
+    # ── 토폴로지 ───────────────────────────────────────────────────────
+    # 입력 (priority 높을수록 우세):
+    #   teleop      : /cmd_vel_teleop  (frontend → adapter 수동, pri 100)
+    #   navigation  : /cmd_vel         (Nav2 velocity_smoother 출력, pri 10)
+    # 출력: /cmd_vel_mux  → isaac_bridge sub → ZMQ → sim
+    #
+    # Nav2 chain 은 그대로 (cmd_vel publish 까지). twist_mux 가 그 출력과
+    # teleop 둘을 받아 우선순위 매겨 cmd_vel_mux 로 forward. 이 분리로
+    # SLAM 못 잡혀 Nav2 가 cmd_vel=0 도배해도 사용자 teleop 가 통과.
+    #
+    # timeout: priority 가 높은 채널이 잠시 메시지 안 보내도 그 시간 동안
+    # 우세 유지 → 사용자 키 떼는 순간 nav 의 cmd_vel=0 으로 가로채는 race
+    # condition 차단.
+    topics:
+      teleop:
+        topic   : cmd_vel_teleop
+        timeout : 0.5
+        priority: 100
+      navigation:
+        topic   : cmd_vel
+        timeout : 0.5
+        priority: 10

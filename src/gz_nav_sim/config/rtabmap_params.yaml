@@ -3,7 +3,7 @@ rtabmap:
     # ── 좌표계 ────────────────────────────────────────────────────────
     frame_id: base_link            # 로봇 본체 프레임 (sim_nav 정적 TF)
     map_frame_id: map              # 글로벌 맵 프레임
-    odom_frame_id: odom            # /odom 프레임 (gazebo_ros_diff_drive 발행)
+    odom_frame_id: odom            # /odom 프레임
     publish_tf: true               # map → odom TF 발행 (Nav2가 의존)
 
     # ── 입력 모드 (RGB-D + LiDAR 보조) ────────────────────────────────
@@ -11,9 +11,13 @@ rtabmap:
     subscribe_depth: true          # depth/image 직접 구독
     subscribe_rgb: true
     subscribe_scan: true           # /scan 보조 입력 (proximity)
-    approx_sync: true              # Gazebo 토픽 stamp 미세 차이 허용
+    approx_sync: true              # 센서 토픽 stamp 미세 차이 허용
+    # approx_sync_max_interval: 0 (기본=auto). Isaac proprio 가 5–10Hz 라
+    # odom 보간 stamp 와 카메라 stamp 가 100ms+ 벌어질 수 있음. 명시적 cap 두면
+    # 모든 sync 거부 위험 — auto 가 가장 안전.
     queue_size: 30
     sync_queue_size: 30
+    topic_queue_size: 30
     use_sim_time: true
 
     # ── 멀티세션 / DB ────────────────────────────────────────────────
@@ -21,54 +25,65 @@ rtabmap:
     # 빈 문자열이면 기본 ~/.ros/rtabmap.db 사용 (자동 append).
     database_path: ""
     Mem/IncrementalMemory: "true"      # mapping 모드 (false=localization)
-    Mem/InitWMWithAllNodes: "true"     # DB 로드 시 전체 노드 워킹메모리에
-    Rtabmap/StartNewMapOnLoopClosure: "true"
+    Mem/InitWMWithAllNodes: "false"    # 큰 DB 로드 시 OOM/지연 방지 — lazy retrieval
+    Rtabmap/StartNewMapOnLoopClosure: "false"  # 재로컬 실패해도 fragment 안 만듦
     Rtabmap/DetectionRate: "1.0"       # Hz, 키프레임 후보 검사 주기
     Rtabmap/CreateIntermediateNodes: "true"
 
-    # ── Registration backbone — VISUAL/RGB-D-FIRST ──────────────────
-    # Reg/Strategy 0=Visual (RGB feature + depth), 1=ICP (라이다 scan-matching), 2=Visual+ICP.
-    # Isaac 의 RTX 카메라는 풍부한 텍스처 → visual feature 가 잘 잡힘.
-    # frame-to-frame registration + loop closure 둘 다 visual BoW (DBoW2) 로.
-    Reg/Strategy: "0"
+    # ── Registration backbone — VISUAL + ICP fallback ──────────────
+    # Reg/Strategy 0=Visual, 1=ICP, 2=Visual+ICP.
+    # 시뮬에서 흰벽/반복 텍스처 구간이 많아 visual-only 는 frame-to-frame drift →
+    # 나중 loop closure 가 그래프를 비틀어서 "맵 회전" 증상.
+    # ICP 폴백을 더해 연속 프레임 간 drift 를 sub-frame 단위로 잡음.
+    Reg/Strategy: "2"
     Reg/Force3DoF: "true"              # 2D 평면 robot — z/roll/pitch 고정
-    # ICP 파라미터들은 미사용 (Reg/Strategy=0). 라이다 fusion 모드(=2) 복귀 시 참고용:
-    #   Icp/PointToPlane: "false"
-    #   Icp/MaxCorrespondenceDistance: "0.1"
-    #   Icp/Iterations: "10"
-    #   Icp/Epsilon: "0.001"
+    Icp/PointToPlane: "true"
+    Icp/MaxCorrespondenceDistance: "0.1"
+    Icp/Iterations: "10"
+    Icp/Epsilon: "0.001"
+    Icp/VoxelSize: "0.05"
 
     # ── 그래프 최적화 ────────────────────────────────────────────────
     Optimizer/Strategy: "1"            # 0=TORO 1=g2o 2=GTSAM 3=Ceres
     Optimizer/Iterations: "20"
-    RGBD/OptimizeFromGraphEnd: "false" # map→odom 안정 (Nav2용)
-    # 0.05 는 너무 작아서 정적 로봇에서도 노이즈로 키프레임 폭증 → Memory.cpp:3473
+    RGBD/OptimizeFromGraphEnd: "false" # map→odom 안정 (Nav2용 — 첫 노드 anchor)
+    # 0.05 는 너무 작아서 정적 로봇 노이즈로 키프레임 폭증 → Memory.cpp:3473
     # 'fromS->getWeight() >= 0' assertion fail (UException, exit -6).
-    # 0.1m / 0.1rad — slam_toolbox 와 비슷한 dense keyframe (assertion 안 나오는 최저).
-    RGBD/AngularUpdate: "0.1"
-    RGBD/LinearUpdate: "0.1"
+    # 0.2m / 0.2rad — assertion 회피 + drift 누적 줄임.
+    RGBD/AngularUpdate: "0.2"
+    RGBD/LinearUpdate: "0.2"
+    RGBD/NeighborLinkRefining: "true"  # 연속 키프레임 간 ICP 보정 — drift 핵심 차단
     RGBD/ProximityBySpace: "true"      # pose-graph 기반 근접 매칭 (라이다 무관)
     RGBD/ProximityMaxGraphDepth: "50"
+    RGBD/ProximityPathMaxNeighbors: "10"
 
-    # ── Loop Closure (visual BoW) ────────────────────────────────────
+    # ── Loop Closure (visual BoW) — 잘못된 매칭으로 인한 그래프 비틀림 방지 ──
     Kp/MaxFeatures: "500"
     Kp/DetectorStrategy: "6"           # 6=GFTT/BRIEF (DBoW2), CPU만으로 동작
-    Vis/MinInliers: "15"
+    Vis/MinInliers: "25"               # 15→25, 시뮬 반복 패턴 false-positive 차단
+    Vis/InlierDistance: "0.05"
     Vis/EstimationType: "1"            # 1=PnP RANSAC
 
     # ── 2D occupancy grid 출력 (Nav2 입력) ───────────────────────────
-    Grid/Sensor: "0"                   # 0=2D LiDAR, 1=depth, 2=both
+    # Grid/Sensor: 0=2D LiDAR only, 1=depth only, 2=둘 다 fusion.
+    # LiDAR-only 는 시뮬 빈 LiDAR 에서 휑한 맵 → loop closure 실패 → drift.
+    Grid/Sensor: "2"
     Grid/RangeMax: "10.0"
     Grid/CellSize: "0.05"
     Grid/3D: "false"                   # 2D occupancy (Nav2용)
     Grid/RayTracing: "true"
     Grid/FootprintHeight: "0.4"
+    Grid/MaxObstacleHeight: "1.5"
+    Grid/NormalsSegmentation: "false"  # 평면 segmentation 비활성 (CPU 부담↓)
 
     # ── 3D 클라우드 출력 (시각화/저장용) ─────────────────────────────
-    cloud_subsample: 4
-    cloud_decimation: 2
-    cloud_max_depth: 6.0
-    cloud_voxel_size: 0.03
+    # cloud_map 이 dense 하게 채워지려면 decimation/subsample 너무 크면 안 됨.
+    # max_depth 6m 은 좁은 viewing cone — 실내 라이다 range (12m) 와 맞춰
+    # 더 멀리 점 누적. voxel_size 0.05 로 약간 sparse 하게 정리.
+    cloud_subsample: 2
+    cloud_decimation: 1
+    cloud_max_depth: 12.0
+    cloud_voxel_size: 0.05
 
 # rgbd_odometry 는 simulation 의 /odom 을 신뢰해 사용 안 함.
-# Gazebo wheel odom 이 충분히 정확하므로 visual odom 비활성.
+# 시뮬레이터 odom 을 신뢰해 visual odom 비활성.

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """ROS 2 ↔ Isaac Sim (xlerobot_v1 ZMQ) bridge — multi-robot fleet aware.
 
-Replaces the Gazebo backend. The downstream stack (slam_toolbox, Nav2,
-foxglove, ros_adapter) sees the same ROS topic interface — only the
-producer changes. We bind ONE ROS stack to ONE Isaac robot in the fleet
+Legacy bridge for the older Isaac ZMQ sim_server. The downstream stack
+(slam_toolbox, Nav2, foxglove, ros_adapter) sees the same ROS topic interface.
+We bind ONE ROS stack to ONE Isaac robot in the fleet
 (parameter `robot_id`, default 0).
 
 Wire spec (indoory_isaac_sim, multi-robot):
@@ -32,7 +32,6 @@ Subscribed (from ROS):
 
 from __future__ import annotations
 
-import math
 import threading
 import time
 from typing import Any, Optional
@@ -61,7 +60,14 @@ except ImportError:
     _ZSTD_DECOMPRESS = None
 
 
+# sim_server 가 sensor (proprio/rgb/depth/scan/tf.links) payload 에 박는 schema.
+# 모든 sensor 메시지의 'schema' 필드를 이 값과 비교해 검증 — 안 맞으면 drop.
 SCHEMA = 'xlerobot_v1'
+# command (PUSH :5556) frame 의 schema. sim_server 가 fleet_info 응답으로
+# `command_schema = 'xlerobot_v1.1'` 을 노출 (action_dim_per_robot=23, vr_mode=True).
+# sensor schema 와 분리되어 있어 send 측만 'xlerobot_v1.1' 로 박아야 sim 이 수락.
+# 'xlerobot_v1' 박으면 wire validation 통과 못 해서 sim 이 silently drop → 로봇 안 움직임.
+COMMAND_SCHEMA = 'xlerobot_v1.1'
 ARM_DOF = 14
 BASE_DOF = 3
 
@@ -95,11 +101,9 @@ class IsaacBridge(Node):
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('camera_optical_frame', 'camera_optical_frame')
         self.declare_parameter('lidar_frame', 'base_link')
-        # Which link in tf.links.<id> the camera is mounted on. We re-publish
-        # this link's pose as the dynamic TF base_link→camera_frame so
-        # nvblox/SLAM see the real Isaac camera placement (instead of a
-        # hardcoded mast offset). camera_frame→camera_optical_frame stays
-        # static in launch (optical convention rotation).
+        # tf.links.<id> 페이로드에서 카메라 link 이름. 그 link 의 base_link 기준
+        # pose 를 base_link → camera_frame dynamic TF 로 30Hz publish. SLAM/OCR/
+        # nvblox 가 TF tree 에서 base_link 와 카메라 frame 을 연결할 수 있게.
         self.declare_parameter('camera_link_name', 'head_tilt')
 
         # ── camera intrinsics (RGB) — Isaac default profile 1280×720 ───
@@ -122,7 +126,7 @@ class IsaacBridge(Node):
         # mm → m. Isaac sends uint16 mm by default (depth_scale_m=0.001).
         self.declare_parameter('depth_scale_m', 0.001)
 
-        # ── lidar geometry — match Gazebo D456 model (-π .. π, 12 m) ───
+        # ── lidar geometry (-π .. π, 12 m) ─────────────────────────────
         # scan_range_min defaults to 0.20 m: drop self-returns where the lidar
         # picks up the robot's own chassis. Anything closer is rewritten to
         # inf so slam_toolbox / nav2 obstacle_layer treat it as no-return.
@@ -144,12 +148,12 @@ class IsaacBridge(Node):
         self._t_depth = f'depth.front.{self._robot_id}'
         self._t_scan = f'scan.{self._robot_id}'
         self._t_tflinks = f'tf.links.{self._robot_id}'
+        self._camera_link_name = str(g('camera_link_name'))
 
         self._odom_frame = str(g('odom_frame'))
         self._base_frame = str(g('base_frame'))
         self._cam_frame = str(g('camera_optical_frame'))
         self._lidar_frame = str(g('lidar_frame'))
-        self._camera_link_name = str(g('camera_link_name'))
 
         self._scan_angle_min = float(g('scan_angle_min'))
         self._scan_angle_max = float(g('scan_angle_max'))
@@ -170,8 +174,8 @@ class IsaacBridge(Node):
         )
 
         # ── ROS pubs / subs ─────────────────────────────────────────────
-        # Match Gazebo plugin defaults: /odom + /scan are RELIABLE (slam_toolbox,
-        # nav2 costmaps, telemetry adapters expect reliable). Camera/depth stay
+        # /odom + /scan are RELIABLE because slam_toolbox, nav2 costmaps, and
+        # telemetry adapters expect reliable. Camera/depth stay
         # BEST_EFFORT for throughput.
         sensor_qos = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT)
         rel_qos = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.RELIABLE)
@@ -193,15 +197,10 @@ class IsaacBridge(Node):
         self._cmd_vx = 0.0
         self._cmd_vy = 0.0
         self._cmd_wz = 0.0
-        self.create_subscription(Twist, '/cmd_vel', self._on_cmd_vel, 10)
-
-        # SO-ARM101 leader 14 joint target — adapter 가 50Hz publish.
-        # Float64MultiArray.data: 좌 6 + 우 6 + 2 (head/neck, 보류) = 14.
-        # 메시지 미수신 시 home pose [0]*14 유지.
-        from std_msgs.msg import Float64MultiArray
-        self._arm_target = [0.0] * ARM_DOF
-        self.create_subscription(Float64MultiArray, '/leader_arm_joint_target',
-                                 self._on_arm_target, 10)
+        # twist_mux 가 /cmd_vel_teleop (수동) 와 /cmd_vel (Nav2) 둘을 우선순위로
+        # 묶어 /cmd_vel_mux 로 forward. isaac_bridge 는 그것만 sub — SLAM 못
+        # 잡혀 Nav2 가 cmd_vel=0 도배해도 teleop pri 100 으로 통과.
+        self.create_subscription(Twist, '/cmd_vel_mux', self._on_cmd_vel, 10)
 
         # ── ZMQ ──────────────────────────────────────────────────────────
         self._zmq_ctx = zmq.Context.instance()
@@ -209,9 +208,9 @@ class IsaacBridge(Node):
         self._sub.setsockopt(zmq.RCVHWM, 8)
         self._sub.setsockopt(zmq.LINGER, 0)
         self._sub.connect(f'tcp://{self._host}:{self._pub_port}')
-        # Subscribe selectively to *our* robot's 5 topics. ZMQ does prefix
-        # matching, but the strings are exact-name and don't share prefixes
-        # with other-robot or wrist/mid topics, so the kernel filters out
+        # Subscribe selectively to *our* robot's 4 topics. ZMQ does prefix
+        # matching, but the 4 strings are exact-name and don't share prefixes
+        # with other-robot or wrist/mid/tf topics, so the kernel filters out
         # the 1280×720 jpeg traffic for the other N-1 robots automatically.
         for t in (self._t_proprio, self._t_rgb, self._t_depth, self._t_scan,
                   self._t_tflinks):
@@ -235,17 +234,6 @@ class IsaacBridge(Node):
         # SUB thread runs blocking poll in background; ROS pubs are thread-safe.
         self._stop = threading.Event()
         self._seen_topics: set[str] = set()
-
-        # ── sim-honest odom integrator ──────────────────────────────────
-        # Real wheel odometry doesn't see world ground truth — we mimic that
-        # by ignoring sim's `base_pose` and integrating only the body-frame
-        # velocity (derived from `base_twist` rotated by current world yaw).
-        # /odom starts at (0,0,0); it drifts naturally from sampling/quant
-        # error and any sim noise. SLAM's map→odom does the real correction.
-        self._odom_x = 0.0
-        self._odom_y = 0.0
-        self._odom_yaw = 0.0
-        self._prev_stamp_ns: Optional[int] = None
         self._sub_thread = threading.Thread(target=self._sub_loop, daemon=True)
         self._sub_thread.start()
 
@@ -309,10 +297,16 @@ class IsaacBridge(Node):
         elif topic == self._t_scan:
             # main lidar (z=0.10) — feeds slam_toolbox + nav2 costmaps.
             self._handle_scan(msg)
-        elif topic == self._t_tflinks:
-            self._handle_tf_links(msg)
-        # scan.mid.<id>, rgb.wrist.<id>, depth.wrist.<id> intentionally
-        # dropped — not used by SLAM/Nav.
+        # tf.links.<id> dynamic TF 호출 비활성 — sim 의 head_tilt pose 를 받아서
+        # base_link → camera_frame 으로 publish 했는데 어떤 이유로 TF tree 에서
+        # 안 잡힘 (sendTransform 호출은 했는데 daemon 검출 실패). 대신 launch 의
+        # static TF (base_link → camera_frame) 로 카메라 위치 고정.
+        # elif topic == self._t_tflinks:
+        #     self._handle_tf_links(msg)
+        # scan.mid.<id> intentionally dropped: feeding two scans into the
+        # same /scan topic alternates frame_ids and saturates slam_toolbox's
+        # tf2 message filter. rgb.wrist.<id>, depth.wrist.<id>, tf.links.<id>
+        # also ignored — not used by SLAM/Nav.
 
     def _handle_proprio(self, msg: dict) -> None:
         stamp_ns = int(msg.get('stamp_ns', 0))
@@ -323,59 +317,40 @@ class IsaacBridge(Node):
         clock.clock = stamp
         self._pub_clock.publish(clock)
 
-        # base_pose is read ONLY to extract the current world-yaw, used to
-        # rotate the world-frame `base_twist` into body frame (real wheel
-        # encoders give body-frame velocities directly; we recover that here).
-        # The pose itself is NOT used to set odom — that would leak ground
-        # truth and trivialize SLAM. We start /odom at (0,0,0) and integrate.
-        pose = msg.get('base_pose') or [0.0] * 7
-        twist = msg.get('base_twist') or [0.0] * 6
-        if len(pose) < 7 or len(twist) < 6:
+        pose = msg.get('base_pose')
+        if not pose or len(pose) < 7:
             return
-        qx, qy, qz, qw = (float(v) for v in pose[3:7])
-        vx_w = float(twist[0])
-        vy_w = float(twist[1])
-        wz = float(twist[5])
+        x, y, z, qx, qy, qz, qw = (float(v) for v in pose[:7])
 
-        # World yaw from the world-frame quaternion (z-axis rotation only,
-        # ground robot — pitch/roll ignored).
-        yaw_w = math.atan2(2.0 * (qw * qz + qx * qy),
-                           1.0 - 2.0 * (qy * qy + qz * qz))
-        # Rotate world-frame velocity by -yaw_w → body frame.
-        cs_w, sn_w = math.cos(yaw_w), math.sin(yaw_w)
-        vx_b = vx_w * cs_w + vy_w * sn_w
-        vy_b = -vx_w * sn_w + vy_w * cs_w
+        # base_forward_w 는 base_link 의 +X 축을 world 좌표계로 박은 unit vector
+        # (가이드 §3.4). 2D 평면 robot (Reg/Force3DoF=true) 이라 z 회전만 필요 →
+        # base_forward_w 의 (fx, fy) 로 yaw 계산이 quaternion 해석/좌표계 오차에
+        # 완전 면역. 90도 오프셋 디버깅 시점에 base_pose quaternion 만 쓰면 sim
+        # 의 robot URDF forward 정의가 ROS 표준 (+X 정면) 과 다를 때 회전된 odom
+        # 으로 발행 → 화살표 90도 어긋남 + cmd_vel body frame 적용 시 직진하면
+        # 옆으로 움직이는 증상. base_forward_w 우선이 가장 안전.
+        import math as _math
+        fw = msg.get('base_forward_w')
+        if fw and len(fw) >= 2:
+            yaw = _math.atan2(float(fw[1]), float(fw[0]))
+            qx, qy = 0.0, 0.0
+            qz = _math.sin(yaw * 0.5)
+            qw = _math.cos(yaw * 0.5)
 
-        # Δt from previous proprio stamp; first frame has no integration step.
-        if self._prev_stamp_ns is None:
-            dt = 0.0
-        else:
-            dt = max(0.0, (stamp_ns - self._prev_stamp_ns) * 1e-9)
-        self._prev_stamp_ns = stamp_ns
+        twist = msg.get('base_twist') or [0.0] * 6
+        vx, vy, vz, wx, wy, wz = (float(v) for v in (list(twist) + [0.0] * 6)[:6])
 
-        # Integrate body-frame velocity through our drifty odom-yaw.
-        cs_o, sn_o = math.cos(self._odom_yaw), math.sin(self._odom_yaw)
-        self._odom_x += (vx_b * cs_o - vy_b * sn_o) * dt
-        self._odom_y += (vx_b * sn_o + vy_b * cs_o) * dt
-        self._odom_yaw += wz * dt
-
-        half = self._odom_yaw * 0.5
-        odom_qx, odom_qy = 0.0, 0.0
-        odom_qz, odom_qw = math.sin(half), math.cos(half)
-
-        # /odom — pose in odom frame, twist in body frame (ROS convention:
-        # twist refers to child_frame_id which is base_link).
+        # /odom
         odom = Odometry()
         odom.header.stamp = stamp
         odom.header.frame_id = self._odom_frame
         odom.child_frame_id = self._base_frame
-        odom.pose.pose.position.x = self._odom_x
-        odom.pose.pose.position.y = self._odom_y
-        odom.pose.pose.position.z = 0.0
-        odom.pose.pose.orientation = Quaternion(
-            x=odom_qx, y=odom_qy, z=odom_qz, w=odom_qw)
-        odom.twist.twist.linear = Vector3(x=vx_b, y=vy_b, z=0.0)
-        odom.twist.twist.angular = Vector3(x=0.0, y=0.0, z=wz)
+        odom.pose.pose.position.x = x
+        odom.pose.pose.position.y = y
+        odom.pose.pose.position.z = z
+        odom.pose.pose.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
+        odom.twist.twist.linear = Vector3(x=vx, y=vy, z=vz)
+        odom.twist.twist.angular = Vector3(x=wx, y=wy, z=wz)
         self._pub_odom.publish(odom)
 
         # odom → base_link TF
@@ -383,11 +358,10 @@ class IsaacBridge(Node):
         tf.header.stamp = stamp
         tf.header.frame_id = self._odom_frame
         tf.child_frame_id = self._base_frame
-        tf.transform.translation.x = self._odom_x
-        tf.transform.translation.y = self._odom_y
-        tf.transform.translation.z = 0.0
-        tf.transform.rotation = Quaternion(
-            x=odom_qx, y=odom_qy, z=odom_qz, w=odom_qw)
+        tf.transform.translation.x = x
+        tf.transform.translation.y = y
+        tf.transform.translation.z = z
+        tf.transform.rotation = Quaternion(x=qx, y=qy, z=qz, w=qw)
         self._tf_bcast.sendTransform(tf)
 
     def _handle_rgb(self, msg: dict) -> None:
@@ -500,11 +474,7 @@ class IsaacBridge(Node):
         amax = float(msg.get('angle_max', self._scan_angle_max))
         scan.angle_min = amin
         scan.angle_max = amax
-        # CRITICAL: take sim's own angle_increment if provided. If we recompute
-        # it from (amax-amin)/n, slam_toolbox's `expected = (amax-amin)/inc`
-        # rounds back to n+1 (e.g. 500 vs our 499 rays) and drops every scan.
-        scan.angle_increment = float(
-            msg.get('angle_increment', (amax - amin) / max(1, n)))
+        scan.angle_increment = (amax - amin) / n
         scan.time_increment = 0.0
         scan.scan_time = float(msg.get('scan_time', 0.1))
         # Force our self-filter range_min instead of sim's (sim sends 0.05).
@@ -520,13 +490,18 @@ class IsaacBridge(Node):
         self._pub_scan.publish(scan)
 
     def _handle_tf_links(self, msg: dict) -> None:
-        """Republish base_link → camera_frame as a dynamic TF.
-
-        Pulls the pose of `camera_link_name` (default `head_tilt`) out of
-        the tf.links payload and broadcasts it as TF every 30 Hz. nvblox /
-        SLAM see the actual sim camera placement (including head pan/tilt
-        motion) instead of a stale static guess.
-        """
+        """Sim 의 tf.links.<id> 페이로드에서 camera_link_name 의 base_link 기준
+        SE3 pose 를 꺼내 base_link → camera_frame dynamic TF 로 broadcast.
+        downstream static TF camera_frame → camera_optical_frame 까지 합치면
+        TF tree 가 base_link 와 camera_optical_frame 을 연결 → SLAM/OCR/nvblox
+        가 카메라 좌표를 map 좌표로 변환 가능. 이게 빠지면 OCR detection 이
+        camera_optical_frame raw 좌표로 fallback → 웹 지도에 잘못된 위치 표시."""
+        if not hasattr(self, '_tflinks_dbg_done'):
+            names = [t.get('name','?') for t in msg.get('targets',[]) or []]
+            self.get_logger().info(
+                f'[DBG] _handle_tf_links 첫 호출. camera_link_name={self._camera_link_name!r} '
+                f'targets={names}')
+            self._tflinks_dbg_done = True
         targets = msg.get('targets')
         if not targets:
             return
@@ -541,9 +516,6 @@ class IsaacBridge(Node):
             tf = TransformStamped()
             tf.header.stamp = stamp
             tf.header.frame_id = self._base_frame
-            # Downstream stack already has a static camera_frame →
-            # camera_optical_frame TF (optical convention). We feed
-            # base_link → camera_frame here so the chain stays the same.
             tf.child_frame_id = 'camera_frame'
             tf.transform.translation.x = x
             tf.transform.translation.y = y
@@ -559,26 +531,26 @@ class IsaacBridge(Node):
             self._cmd_vy = float(msg.linear.y)
             self._cmd_wz = float(msg.angular.z)
 
-    def _on_arm_target(self, msg) -> None:
-        # adapter 의 leader read thread 가 50Hz 로 publish. 길이 != ARM_DOF 이면 pad/truncate.
-        data = list(msg.data)[:ARM_DOF]
-        if len(data) < ARM_DOF:
-            data = data + [0.0] * (ARM_DOF - len(data))
-        with self._cmd_lock:
-            self._arm_target = data
-
     def _tick_push(self) -> None:
+        # publisher-count 기반 deadman: /cmd_vel 에 publisher 가 0 이면 마지막
+        # cached cmd 무시하고 (0,0,0) 송출. ROS graph 에 publisher 가 살아있으면
+        # 신뢰 (Nav2 controller, adapter teleop, behavior_server 모두 자체 watchdog
+        # 가짐). publisher 가 사라진 경우 = 누가 죽거나 SIGKILL 됨 = 안전하게 정지.
+        # timing 의존 watchdog 보다 시맨틱하게 정확하고 false-positive 가 적음.
         with self._cmd_lock:
+            if self.count_publishers('/cmd_vel') == 0:
+                self._cmd_vx = 0.0
+                self._cmd_vy = 0.0
+                self._cmd_wz = 0.0
             base = [self._cmd_vx, self._cmd_vy, self._cmd_wz]
-            arm = list(self._arm_target)
         # No `frame` key → defaults to "body" on sim side (yaw-rotated).
         # That matches Nav2 controller_server / teleop conventions where
         # cmd_vel is already in the robot's body frame.
         frame = {
-            'schema': SCHEMA,
+            'schema': COMMAND_SCHEMA,
             'stamp_ns': time.time_ns(),
             'robot_id': self._robot_id,
-            'arm_joint_pos_target': arm,
+            'arm_joint_pos_target': self._zero_arm,
             'base_cmd_vel': base,
         }
         try:
