@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Latest-only downsampled point cloud republisher for Foxglove.
 
-Internal navigation can keep using the full `/camera/points` stream, while
+Internal navigation can keep using the full `/depth/points` stream, while
 remote monitoring subscribes to a cheaper visualization topic.
 """
 
@@ -21,8 +21,8 @@ class PointcloudVisualizerNode(Node):
     def __init__(self) -> None:
         super().__init__('pointcloud_visualizer_node')
 
-        self.declare_parameter('input_topic', '/camera/points')
-        self.declare_parameter('output_topic', '/camera/points_visual')
+        self.declare_parameter('input_topic', '/depth/points')
+        self.declare_parameter('output_topic', '/depth/points_visual')
         self.declare_parameter('max_rate_hz', 2.0)
         self.declare_parameter('stride', 6)
         self.declare_parameter('max_points', 20000)

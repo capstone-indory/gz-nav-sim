@@ -3,8 +3,8 @@
 분리된 include용 런치. sim_nav.launch.py에서 use_nvblox:=true로 포함.
 
 입력 토픽:
-  /d456/depth/image_raw       sensor_msgs/Image (D456 native depth)
-  /d456/depth/camera_info     sensor_msgs/CameraInfo
+  /depth/image_raw       sensor_msgs/Image (depth sensor native depth)
+  /depth/camera_info     sensor_msgs/CameraInfo
   /camera/image_raw           sensor_msgs/Image (XLeRobot RGB)
   /camera/camera_info         sensor_msgs/CameraInfo
 
@@ -21,6 +21,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -31,6 +32,7 @@ def generate_launch_description():
     depth_info_topic = LaunchConfiguration('depth_info_topic')
     color_topic = LaunchConfiguration('color_topic')
     color_info_topic = LaunchConfiguration('color_info_topic')
+    use_sim_time = LaunchConfiguration('use_sim_time')
 
     # GPU 1 (RTX 3090, 24GB) 단독 점유.
     nvblox_node = Node(
@@ -38,7 +40,9 @@ def generate_launch_description():
         executable='nvblox_node',
         name='nvblox_node',
         output='screen',
-        parameters=[nvblox_params, {'use_sim_time': True}],
+        parameters=[nvblox_params, {
+            'use_sim_time': ParameterValue(use_sim_time, value_type=bool),
+        }],
         additional_env={'CUDA_VISIBLE_DEVICES': '1'},
         remappings=[
             ('depth/image', depth_topic),
@@ -53,9 +57,10 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument('depth_topic', default_value='/camera/depth/image_raw'),
-        DeclareLaunchArgument('depth_info_topic', default_value='/camera/depth/camera_info'),
+        DeclareLaunchArgument('depth_topic', default_value='/depth/image_raw'),
+        DeclareLaunchArgument('depth_info_topic', default_value='/depth/camera_info'),
         DeclareLaunchArgument('color_topic', default_value='/camera/image_raw'),
         DeclareLaunchArgument('color_info_topic', default_value='/camera/camera_info'),
+        DeclareLaunchArgument('use_sim_time', default_value='false'),
         nvblox_node,
     ])

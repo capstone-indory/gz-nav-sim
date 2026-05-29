@@ -296,8 +296,8 @@ class SemanticOcrNode(Node):
         super().__init__('semantic_ocr_node')
 
         self.declare_parameter('image_topic', '/camera/image_raw')
-        self.declare_parameter('depth_topic', '/d456/depth/image_raw')
-        self.declare_parameter('camera_info_topic', '/d456/depth/camera_info')
+        self.declare_parameter('depth_topic', '/depth/image_raw')
+        self.declare_parameter('camera_info_topic', '/depth/camera_info')
         self.declare_parameter('detections_topic', '/semantic_ocr/detections')
         self.declare_parameter('markers_topic', '/semantic_ocr/markers')
         self.declare_parameter('image_annotations_topic', '/semantic_ocr/image_annotations')
@@ -593,13 +593,17 @@ class SemanticOcrNode(Node):
             except Exception as exc:
                 self._backend_name = 'none'
                 self._backend_error = str(exc)
-                raise RuntimeError(f'no OCR backend available: {exc}') from exc
+                self.get_logger().warn(
+                    f'OCR backend unavailable; publishing empty detections until an OCR backend is installed: {exc}'
+                )
 
     def _infer_ocr(self, job: OcrJob) -> tuple[list[OcrObservation], list[dict[str, Any]]]:
         self._ensure_backend()
         h_ocr, w_ocr = job.ocr_rgb.shape[:2]
         h, w = job.rgb.shape[:2]
         raw_detections: list[dict[str, Any]] = []
+        if self._backend_name == 'none':
+            return [], raw_detections
         if self._backend_name == 'paddle':
             for scale in self._cfg.ocr_scales:
                 rgb_in = _scaled_rgb(job.ocr_rgb, scale)
@@ -1014,7 +1018,8 @@ class SemanticOcrNode(Node):
 
     def _make_image_annotations(self, stamp, objects: list[dict[str, Any]]) -> ImageAnnotations:
         msg = ImageAnnotations()
-        msg.timestamp = stamp
+        if hasattr(msg, 'timestamp'):
+            msg.timestamp = stamp
 
         for index, obj in enumerate(objects):
             bbox = obj.get('bbox_xyxy')
@@ -1037,13 +1042,14 @@ class SemanticOcrNode(Node):
             box.outline_color = outline
             box.fill_color = fill
             box.thickness = 2.0
-            box.metadata = [
-                KeyValuePair(key='type', value='room_id_sign'),
-                KeyValuePair(key='room_id', value=str(obj.get('room_id') or '')),
-                KeyValuePair(key='confidence', value=f'{confidence:.4f}'),
-                KeyValuePair(key='source', value=str(obj.get('source') or '')),
-                KeyValuePair(key='track_id', value=str(obj.get('track_id') or '')),
-            ]
+            if hasattr(box, 'metadata'):
+                box.metadata = [
+                    KeyValuePair(key='type', value='room_id_sign'),
+                    KeyValuePair(key='room_id', value=str(obj.get('room_id') or '')),
+                    KeyValuePair(key='confidence', value=f'{confidence:.4f}'),
+                    KeyValuePair(key='source', value=str(obj.get('source') or '')),
+                    KeyValuePair(key='track_id', value=str(obj.get('track_id') or '')),
+                ]
             msg.points.append(box)
 
             label = TextAnnotation()
@@ -1053,7 +1059,8 @@ class SemanticOcrNode(Node):
             label.font_size = 14.0
             label.text_color = Color(r=1.0, g=1.0, b=1.0, a=1.0)
             label.background_color = Color(r=0.0, g=0.0, b=0.0, a=0.65)
-            label.metadata = [KeyValuePair(key='index', value=str(index))]
+            if hasattr(label, 'metadata'):
+                label.metadata = [KeyValuePair(key='index', value=str(index))]
             msg.texts.append(label)
         return msg
 

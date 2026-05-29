@@ -19,10 +19,10 @@ slam_toolbox:
     transform_publish_period: 0.01   # 50Hz → 100Hz. nvblox가 회전 시 TF 못 따라가 depth drop ("Deleted N because we could not interpolate transforms") 25회 관측 → 완화.
     map_update_interval: 3.0
     resolution: 0.05
-    min_laser_range: 0.12
+    min_laser_range: 0.20
     max_laser_range: 12.0
     minimum_time_interval: 0.3
-    transform_timeout: 1.0
+    transform_timeout: 0.05
     # 부팅 초기 sim time 점프 / scan 큐잉 갭으로 30s 버퍼 lookup 실패 시
     # tf2::ExtrapolationException 던지며 process 종료 — 5분 버퍼로 흡수.
     tf_buffer_duration: 300.0

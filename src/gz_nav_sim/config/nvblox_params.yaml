@@ -6,7 +6,7 @@
     pose_frame: base_link
     use_tf_transforms: true
 
-    # ── 입력 모드 (D456 RGB-D) ─────────────────────────────────────────
+    # ── 입력 모드 (depth sensor RGB-D) ─────────────────────────────────────────
     use_depth: true
     use_color: true
     use_lidar: false
@@ -38,7 +38,7 @@
     mesh_update_rate_hz: 0.2
 
     # ── Update rates ────────────────────────────────────────────────────
-    # D456 native depth is lighter than feed-forward depth, but keep a modest
+    # depth sensor native depth is lighter than feed-forward depth, but keep a modest
     # cap to avoid overloading Foxglove/nvblox while mapping.
     max_depth_update_hz: 5.0
     max_color_update_hz: 5.0
@@ -60,7 +60,7 @@
       # ── Depth preprocessing ──────────────────────────────────────────
       do_depth_preprocessing: false
 
-      # ── Integrator — D456 max range에 맞춘 보수값 ───────────────────
+      # ── Integrator — depth sensor max range에 맞춘 보수값 ───────────────────
       projective_integrator_max_integration_distance_m: 20.0
       # truncation 6.0 복구: 얇게 하면 mesh가 끊어져서 안 생김.
       projective_integrator_truncation_distance_vox: 6.0

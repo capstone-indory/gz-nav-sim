@@ -6,11 +6,11 @@ rtabmap:
     odom_frame_id: odom            # /odom 프레임
     publish_tf: true               # map → odom TF 발행 (Nav2가 의존)
 
-    # ── 입력 모드 (RGB-D + LiDAR 보조) ────────────────────────────────
+    # ── 입력 모드 ────────────────────────────────────────────────────
     subscribe_rgbd: false          # rgbd_image 메시지 사용 안 함
     subscribe_depth: true          # depth/image 직접 구독
     subscribe_rgb: true
-    subscribe_scan: true           # /scan 보조 입력 (proximity)
+    subscribe_scan: true           # LiDAR 벽/장애물을 RTAB grid에 직접 반영
     approx_sync: true              # 센서 토픽 stamp 미세 차이 허용
     # approx_sync_max_interval: 0 (기본=auto). Isaac proprio 가 5–10Hz 라
     # odom 보간 stamp 와 카메라 stamp 가 100ms+ 벌어질 수 있음. 명시적 cap 두면
@@ -30,11 +30,10 @@ rtabmap:
     Rtabmap/DetectionRate: "1.0"       # Hz, 키프레임 후보 검사 주기
     Rtabmap/CreateIntermediateNodes: "true"
 
-    # ── Registration backbone — VISUAL + ICP fallback ──────────────
+    # ── Registration backbone ────────────────────────────────────────
     # Reg/Strategy 0=Visual, 1=ICP, 2=Visual+ICP.
-    # 시뮬에서 흰벽/반복 텍스처 구간이 많아 visual-only 는 frame-to-frame drift →
-    # 나중 loop closure 가 그래프를 비틀어서 "맵 회전" 증상.
-    # ICP 폴백을 더해 연속 프레임 간 drift 를 sub-frame 단위로 잡음.
+    # Launch에서 RGB-D/ICP 모드에 맞춰 override한다. 기본 파일은
+    # RGB-D+LiDAR fusion 기준으로 둔다.
     Reg/Strategy: "2"
     Reg/Force3DoF: "true"              # 2D 평면 robot — z/roll/pitch 고정
     Icp/PointToPlane: "true"
@@ -66,7 +65,8 @@ rtabmap:
 
     # ── 2D occupancy grid 출력 (Nav2 입력) ───────────────────────────
     # Grid/Sensor: 0=2D LiDAR only, 1=depth only, 2=둘 다 fusion.
-    # LiDAR-only 는 시뮬 빈 LiDAR 에서 휑한 맵 → loop closure 실패 → drift.
+    # 실제 하드웨어에서는 라이다 벽이 맵에 바로 박혀야 하므로 기본은
+    # RGB-D+2D LiDAR fusion이다. 하드웨어 launcher의 icp 모드는 0으로 override.
     Grid/Sensor: "2"
     Grid/RangeMax: "10.0"
     Grid/CellSize: "0.05"

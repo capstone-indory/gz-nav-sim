@@ -2,12 +2,14 @@
 # Robot 주행 helper. 두 가지 모드:
 #   1. teleop: cmd_vel 직접 publish (--mode teleop)
 #   2. nav2: /goal_pose에 PoseStamped publish (Nav2 goal, --mode nav2)
-#   3. square: nav2 goal로 사각형 주행 (--mode square)
+#   3. dest: /nav/destination에 이름 기반 목적지 publish
+#   4. square: nav2 goal로 사각형 주행 (--mode square)
 #
 # 사용법:
 #   ./bench/drive.sh teleop                      # 30s 직진+회전
 #   ./bench/drive.sh teleop --duration 60 --vx 0.4 --wz 0.2
 #   ./bench/drive.sh nav2 --x 5 --y 0 --yaw 0    # 한 번 goal 보냄
+#   ./bench/drive.sh dest --name home            # config/nav_destinations.yaml 이름 사용
 #   ./bench/drive.sh square --side 3             # 3m 사각형
 #
 # Pre-req: ROS2 Humble + install/setup.bash 소스됨.
@@ -15,7 +17,17 @@
 
 set -e
 
-source /opt/ros/humble/setup.bash
+if [[ -f /opt/ros/humble/setup.bash ]]; then
+    source /opt/ros/humble/setup.bash
+elif [[ -n "${CONDA_PREFIX:-}" && -f "$CONDA_PREFIX/setup.bash" ]]; then
+    source "$CONDA_PREFIX/setup.bash"
+fi
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f "$ROOT/install/setup.bash" ]]; then
+    source "$ROOT/install/setup.bash"
+elif [[ -f "$ROOT/install/setup.sh" ]]; then
+    source "$ROOT/install/setup.sh"
+fi
 source /root/gz-nav-sim/install/setup.bash 2>/dev/null || true
 
 MODE="${1:-teleop}"; shift || true
@@ -24,6 +36,7 @@ DURATION=30
 VX=0.3
 WZ=0.15
 GX=0; GY=0; GYAW=0
+DEST_NAME=home
 SIDE=3
 
 while [ $# -gt 0 ]; do
@@ -34,6 +47,7 @@ while [ $# -gt 0 ]; do
         --x) GX="$2"; shift 2 ;;
         --y) GY="$2"; shift 2 ;;
         --yaw) GYAW="$2"; shift 2 ;;
+        --name) DEST_NAME="$2"; shift 2 ;;
         --side) SIDE="$2"; shift 2 ;;
         *) echo "[warn] unknown arg: $1"; shift ;;
     esac
@@ -67,6 +81,10 @@ case "$MODE" in
         send_goal "$GX" "$GY" "$GYAW"
         echo "[drive] goal sent. /navigate_to_pose 액션이 처리할 때까지 대기 안 함."
         ;;
+    dest|destination)
+        echo "[drive] destination goal: $DEST_NAME → /nav/destination"
+        ros2 topic pub --once /nav/destination std_msgs/msg/String "{data: '$DEST_NAME'}"
+        ;;
     square)
         echo "[drive] square ${SIDE}m × ${SIDE}m, 4 goals"
         send_goal "$SIDE" 0 0; sleep 8
@@ -76,7 +94,7 @@ case "$MODE" in
         echo "[drive] square done"
         ;;
     *)
-        echo "[err] unknown mode: $MODE (teleop|nav2|square)"
+        echo "[err] unknown mode: $MODE (teleop|nav2|dest|square)"
         exit 1
         ;;
 esac

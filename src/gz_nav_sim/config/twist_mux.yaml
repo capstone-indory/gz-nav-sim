@@ -4,6 +4,7 @@ twist_mux:
     # ── 토폴로지 ───────────────────────────────────────────────────────
     # 입력 (priority 높을수록 우세):
     #   teleop      : /cmd_vel_teleop  (frontend → adapter 수동, pri 100)
+    #   teleop_alias: /cmd_teleop      (manual alias, pri 110)
     #   navigation  : /cmd_vel         (Nav2 velocity_smoother 출력, pri 10)
     # 출력: /cmd_vel_mux  → isaac_bridge sub → ZMQ → sim
     #
@@ -17,8 +18,12 @@ twist_mux:
     topics:
       teleop:
         topic   : cmd_vel_teleop
-        timeout : 0.5
+        timeout : 2.0
         priority: 100
+      teleop_alias:
+        topic   : cmd_teleop
+        timeout : 2.0
+        priority: 110
       navigation:
         topic   : cmd_vel
         timeout : 0.5

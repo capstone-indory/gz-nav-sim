@@ -24,7 +24,7 @@ bench/
 │  ├ metrics.json          # extract_metrics.py가 launch.log 파싱한 결과
 │  └ notes.md              # 사용자 메모
 ├ run.sh                # 메인 runner
-├ drive.sh              # robot 주행 (teleop / nav2 goal / square)
+├ drive.sh              # robot 주행 (teleop / nav2 goal / named destination / square)
 ├ replay.sh             # bag → mapper-only 재실행 (WIP)
 ├ extract_metrics.py    # stdout → metrics.json
 └ compare.py            # 여러 run 표 비교
@@ -40,6 +40,8 @@ bench/
 ./bench/drive.sh teleop --duration 60 --vx 0.3 --wz 0.2
 # 또는 Nav2 goal
 ./bench/drive.sh nav2 --x 5 --y 0
+# 또는 named destination
+./bench/drive.sh dest --name home
 # 또는 사각형
 ./bench/drive.sh square --side 3
 
@@ -69,6 +71,7 @@ python3 bench/compare.py
 |---|---|
 | `teleop` | `/cmd_vel_teleop`에 직접 publish |
 | `nav2` | `/goal_pose`에 PoseStamped 1회 publish (Nav2 핸들링) |
+| `dest` | `/nav/destination` 이름을 `/goal_pose`로 변환 |
 | `square` | nav2 goal로 사각형 4점 순회 |
 
 teleop이 안 먹히면 (nav2 velocity_smoother가 차단) `drive.sh` 안의

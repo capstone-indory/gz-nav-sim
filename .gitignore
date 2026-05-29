@@ -2,6 +2,7 @@
 build/
 install/
 log/
+CMakeFiles/
 
 # 별도 repo (indoory/indoors-web) — 같은 머신 co-located 라 untracked
 indoors-web/
@@ -29,9 +30,14 @@ src/VGGT-SLAM/
 src/isaac_ros_nvblox/
 src/Depth-Anything-3/
 src/m-explore-ros2/
+src/rtabmap/
+src/rtabmap_ros/
 
 # 벤치마크 실행 산출물 (대용량 log/bag — 로컬 전용)
 bench/runs/
+
+# 런타임 상태 (user-space postgres, map/floor DB)
+.state/
 
 # sync_collision_to_visual.py가 만드는 SDF 백업 — 로컬 전용
 *.sdf.bak

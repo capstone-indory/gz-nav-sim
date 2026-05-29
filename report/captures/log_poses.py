@@ -14,7 +14,7 @@ from nav_msgs.msg import Odometry
 from tf2_ros import Buffer, TransformListener, LookupException, ExtrapolationException
 
 OUT = os.path.dirname(os.path.abspath(__file__))
-ROBOT = os.environ.get('ROBOT_NAME', 'robot_d456')
+ROBOT = os.environ.get('ROBOT_NAME', 'robot_depth_sensor')
 DURATION = float(os.environ.get('LOG_SECONDS', '90'))
 
 

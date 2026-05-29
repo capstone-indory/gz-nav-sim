@@ -1,0 +1,11 @@
+# Map-specific Nav2 destinations for /nav/destination.
+#
+# Update these after the map frame is established. Values are meters/radians
+# in the ROS map frame. You can also bypass names and publish Pose2D directly:
+#   ros2 topic pub --once /nav/goal_pose2d geometry_msgs/msg/Pose2D \
+#     "{x: 1.0, y: 0.0, theta: 0.0}"
+destinations:
+  home:
+    x: 0.0
+    y: 0.0
+    yaw: 0.0

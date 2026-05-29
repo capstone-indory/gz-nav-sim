@@ -141,7 +141,7 @@ class Da3DepthNode(Node):
         self.declare_parameter('esdf_max_residual_m', 0.25)
         self.declare_parameter('esdf_min_reference_points', 500)
         # 누적 world-frame RGB pointcloud
-        self.declare_parameter('world_pointcloud_topic', '/camera/depth/world_points')
+        self.declare_parameter('world_pointcloud_topic', '/depth/world_points')
         self.declare_parameter('world_frame', 'odom')
         self.declare_parameter('world_pc_max_points', 500000)
         self.declare_parameter('world_pc_voxel_size', 0.05)
@@ -150,8 +150,8 @@ class Da3DepthNode(Node):
         # Delta: 신규 chunk의 점들만 publish (작음, 자주).
         # Full: 전체 누적 점 주기적 snapshot (늦게 붙은 client sync용).
         self.declare_parameter('global_map_enable', True)
-        self.declare_parameter('global_map_topic', '/camera/depth/global_map')
-        self.declare_parameter('global_map_delta_topic', '/camera/depth/global_map_delta')
+        self.declare_parameter('global_map_topic', '/depth/global_map')
+        self.declare_parameter('global_map_delta_topic', '/depth/global_map_delta')
         self.declare_parameter('global_map_full_period_s', 10.0)   # full snapshot 주기
         self.declare_parameter('global_map_delta_period_s', 1.0)   # delta publish 주기
         self.declare_parameter('global_map_max_points', 2000000)   # 메모리 상한 (~32MB)
@@ -322,7 +322,7 @@ class Da3DepthNode(Node):
         world_pc_topic = str(self.get_parameter('world_pointcloud_topic').value)
         self._world_pc_pub = self.create_publisher(PointCloud2, world_pc_topic, output_qos)
         # Rejected chunk 전용 world cloud (디버깅/관찰용).
-        # nvblox는 accepted(_world_pc_pub 토픽 아닌 /camera/depth/image_raw)만 받음.
+        # nvblox는 accepted(_world_pc_pub 토픽 아닌 /depth/image_raw)만 받음.
         # 이 토픽은 Foxglove에서 "DA3가 이런 이상한 depth를 냈다"를 눈으로 확인용.
         world_pc_rejected_topic = world_pc_topic + '_rejected'
         self._world_pc_rejected_pub = self.create_publisher(

@@ -164,8 +164,8 @@ class SemanticVlmNode(Node):
         super().__init__('semantic_vlm_node')
 
         self.declare_parameter('image_topic', '/camera/image_raw')
-        self.declare_parameter('depth_topic', '/d456/depth/image_raw')
-        self.declare_parameter('camera_info_topic', '/d456/depth/camera_info')
+        self.declare_parameter('depth_topic', '/depth/image_raw')
+        self.declare_parameter('camera_info_topic', '/depth/camera_info')
         self.declare_parameter('detections_topic', '/semantic_vlm/detections')
         self.declare_parameter('markers_topic', '/semantic_vlm/markers')
         self.declare_parameter('image_annotations_topic', '/semantic_vlm/image_annotations')
@@ -895,7 +895,8 @@ class SemanticVlmNode(Node):
 
     def _make_image_annotations(self, stamp, objects: list[dict]) -> ImageAnnotations:
         msg = ImageAnnotations()
-        msg.timestamp = stamp
+        if hasattr(msg, 'timestamp'):
+            msg.timestamp = stamp
 
         for index, obj in enumerate(objects):
             bbox = obj.get('bbox_xyxy')
@@ -918,11 +919,12 @@ class SemanticVlmNode(Node):
             box.outline_color = outline
             box.fill_color = fill
             box.thickness = 2.0
-            box.metadata = [
-                KeyValuePair(key='type', value=str(obj.get('type') or 'other')),
-                KeyValuePair(key='confidence', value=str(obj.get('confidence') or 'low')),
-                KeyValuePair(key='failure_reason', value=str(obj.get('failure_reason') or 'unknown')),
-            ]
+            if hasattr(box, 'metadata'):
+                box.metadata = [
+                    KeyValuePair(key='type', value=str(obj.get('type') or 'other')),
+                    KeyValuePair(key='confidence', value=str(obj.get('confidence') or 'low')),
+                    KeyValuePair(key='failure_reason', value=str(obj.get('failure_reason') or 'unknown')),
+                ]
             msg.points.append(box)
 
             label_text = (
@@ -937,7 +939,8 @@ class SemanticVlmNode(Node):
             label.font_size = 14.0
             label.text_color = Color(r=1.0, g=1.0, b=1.0, a=1.0)
             label.background_color = Color(r=0.0, g=0.0, b=0.0, a=0.65)
-            label.metadata = [KeyValuePair(key='index', value=str(index))]
+            if hasattr(label, 'metadata'):
+                label.metadata = [KeyValuePair(key='index', value=str(index))]
             msg.texts.append(label)
 
         return msg

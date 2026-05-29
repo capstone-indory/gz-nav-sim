@@ -2,9 +2,9 @@ da3_depth_node:
   ros__parameters:
     image_topic: /camera/image_raw
     camera_info_topic: /camera/camera_info
-    depth_topic: /camera/depth/image_raw
-    depth_camera_info_topic: /camera/depth/camera_info
-    point_cloud_topic: /camera/depth/points
+    depth_topic: /depth/image_raw
+    depth_camera_info_topic: /depth/camera_info
+    point_cloud_topic: /depth/points
 
     # 입력 이미지는 optical frame 기준으로 받고,
     # DA3가 만든 3D 좌표는 로봇 카메라 링크(camera_frame) 기준으로 보냄
@@ -55,7 +55,7 @@ da3_depth_node:
 
     # 매 inference의 world-frame RGB pointcloud (단일 frame)
     # 누적 X — 매 inference마다 새 1장만 publish (FIFO replace)
-    world_pointcloud_topic: /camera/depth/world_points
+    world_pointcloud_topic: /depth/world_points
     world_frame: odom
     world_pc_voxel_size: 0.05     # voxel down-sample (0=비활성)
 

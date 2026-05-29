@@ -19,12 +19,13 @@ Topics consumed (for our robot_id only):
   proprio.<id>      → /odom + odom→base_link TF + /clock
   rgb.front.<id>    → /camera/image_raw + /camera/image_raw/compressed
                        + /camera/camera_info
-  depth.front.<id>  → /d456/depth/image_raw + /d456/depth/camera_info
+  depth.front.<id>  → /depth/image_raw + /depth/camera_info
   scan.<id>         → /scan
   (rgb.wrist / depth.wrist / scan.mid / tf.links — ignored, not used by SLAM/Nav)
 
 Subscribed (from ROS):
-  /cmd_vel  → base_cmd_vel = [vx, vy, wz], arm = zeros (home pose),
+  /cmd_vel_mux → base_cmd_vel = [vx, vy, wz],
+  /xlerobot/teleop/joint_targets → arm_joint_pos_target(14),
               robot_id = our `robot_id`. `frame` field omitted
               → defaults to "body" (sim yaw-rotates per current pose,
                  which is what Nav2 controller_server already expects).
@@ -51,6 +52,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image, LaserScan
+from std_msgs.msg import Float64MultiArray
 from tf2_ros import TransformBroadcaster
 
 try:
@@ -101,13 +103,12 @@ class IsaacBridge(Node):
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('camera_optical_frame', 'camera_optical_frame')
         self.declare_parameter('lidar_frame', 'base_link')
-        # tf.links.<id> 페이로드에서 카메라 link 이름. 그 link 의 base_link 기준
-        # pose 를 base_link → camera_frame dynamic TF 로 30Hz publish. SLAM/OCR/
-        # nvblox 가 TF tree 에서 base_link 와 카메라 frame 을 연결할 수 있게.
+        # tf.links.<id> payload camera link name. Dynamic camera TF is disabled
+        # by default; the launch file publishes the fixed XLeRobot head chain.
         self.declare_parameter('camera_link_name', 'head_tilt')
 
         # ── camera intrinsics (RGB) — Isaac default profile 1280×720 ───
-        # Defaults approximate D456 1280×720 RealSense intrinsics
+        # Defaults approximate depth sensor 1280×720 RealSense intrinsics
         # (HFOV ~87° → fx ~644). Override via params if Isaac config differs.
         self.declare_parameter('rgb_width', 1280)
         self.declare_parameter('rgb_height', 720)
@@ -187,8 +188,8 @@ class IsaacBridge(Node):
         self._pub_rgb_compressed = self.create_publisher(
             CompressedImage, '/camera/image_raw/compressed', sensor_qos)
         self._pub_rgb_info = self.create_publisher(CameraInfo, '/camera/camera_info', rel_qos)
-        self._pub_depth = self.create_publisher(Image, '/d456/depth/image_raw', sensor_qos)
-        self._pub_depth_info = self.create_publisher(CameraInfo, '/d456/depth/camera_info', rel_qos)
+        self._pub_depth = self.create_publisher(Image, '/depth/image_raw', sensor_qos)
+        self._pub_depth_info = self.create_publisher(CameraInfo, '/depth/camera_info', rel_qos)
 
         self._tf_bcast = TransformBroadcaster(self)
         self._cv_bridge = CvBridge()
@@ -197,10 +198,18 @@ class IsaacBridge(Node):
         self._cmd_vx = 0.0
         self._cmd_vy = 0.0
         self._cmd_wz = 0.0
+        self._arm_lock = threading.Lock()
+        self._arm_target = [0.0] * ARM_DOF
         # twist_mux 가 /cmd_vel_teleop (수동) 와 /cmd_vel (Nav2) 둘을 우선순위로
         # 묶어 /cmd_vel_mux 로 forward. isaac_bridge 는 그것만 sub — SLAM 못
         # 잡혀 Nav2 가 cmd_vel=0 도배해도 teleop pri 100 으로 통과.
         self.create_subscription(Twist, '/cmd_vel_mux', self._on_cmd_vel, 10)
+        self.create_subscription(
+            Float64MultiArray,
+            '/xlerobot/teleop/joint_targets',
+            self._on_joint_targets,
+            10,
+        )
 
         # ── ZMQ ──────────────────────────────────────────────────────────
         self._zmq_ctx = zmq.Context.instance()
@@ -237,8 +246,7 @@ class IsaacBridge(Node):
         self._sub_thread = threading.Thread(target=self._sub_loop, daemon=True)
         self._sub_thread.start()
 
-        # PUSH on a timer so /cmd_vel is never stale (matches keyboard_client).
-        self._zero_arm = [0.0] * ARM_DOF
+        # PUSH on a timer so base and joint targets stay fresh.
         self.create_timer(self._cmd_period, self._tick_push)
 
     # ── ZMQ → ROS ────────────────────────────────────────────────────────
@@ -295,12 +303,10 @@ class IsaacBridge(Node):
         elif topic == self._t_depth:
             self._handle_depth(msg)
         elif topic == self._t_scan:
-            # main lidar (z=0.10) — feeds slam_toolbox + nav2 costmaps.
+            # Main LiDAR scan for SLAM and Nav2 costmaps.
             self._handle_scan(msg)
-        # tf.links.<id> dynamic TF 호출 비활성 — sim 의 head_tilt pose 를 받아서
-        # base_link → camera_frame 으로 publish 했는데 어떤 이유로 TF tree 에서
-        # 안 잡힘 (sendTransform 호출은 했는데 daemon 검출 실패). 대신 launch 의
-        # static TF (base_link → camera_frame) 로 카메라 위치 고정.
+        # tf.links.<id> dynamic TF is disabled. The launch file now publishes
+        # the fixed XLeRobot head chain through camera_frame/camera_optical_frame.
         # elif topic == self._t_tflinks:
         #     self._handle_tf_links(msg)
         # scan.mid.<id> intentionally dropped: feeding two scans into the
@@ -490,12 +496,11 @@ class IsaacBridge(Node):
         self._pub_scan.publish(scan)
 
     def _handle_tf_links(self, msg: dict) -> None:
-        """Sim 의 tf.links.<id> 페이로드에서 camera_link_name 의 base_link 기준
-        SE3 pose 를 꺼내 base_link → camera_frame dynamic TF 로 broadcast.
-        downstream static TF camera_frame → camera_optical_frame 까지 합치면
-        TF tree 가 base_link 와 camera_optical_frame 을 연결 → SLAM/OCR/nvblox
-        가 카메라 좌표를 map 좌표로 변환 가능. 이게 빠지면 OCR detection 이
-        camera_optical_frame raw 좌표로 fallback → 웹 지도에 잘못된 위치 표시."""
+        """Optional legacy dynamic camera TF handler for ZMQ payloads.
+
+        The active XLeRobot path uses the fixed head chain from the launch file,
+        so this callback is intentionally not subscribed in normal runs.
+        """
         if not hasattr(self, '_tflinks_dbg_done'):
             names = [t.get('name','?') for t in msg.get('targets',[]) or []]
             self.get_logger().info(
@@ -531,18 +536,27 @@ class IsaacBridge(Node):
             self._cmd_vy = float(msg.linear.y)
             self._cmd_wz = float(msg.angular.z)
 
+    def _on_joint_targets(self, msg: Float64MultiArray) -> None:
+        with self._arm_lock:
+            for index, raw_value in enumerate(list(msg.data)[:ARM_DOF]):
+                value = float(raw_value)
+                if np.isfinite(value):
+                    self._arm_target[index] = value
+
     def _tick_push(self) -> None:
-        # publisher-count 기반 deadman: /cmd_vel 에 publisher 가 0 이면 마지막
+        # publisher-count 기반 deadman: /cmd_vel_mux 에 publisher 가 0 이면 마지막
         # cached cmd 무시하고 (0,0,0) 송출. ROS graph 에 publisher 가 살아있으면
         # 신뢰 (Nav2 controller, adapter teleop, behavior_server 모두 자체 watchdog
         # 가짐). publisher 가 사라진 경우 = 누가 죽거나 SIGKILL 됨 = 안전하게 정지.
         # timing 의존 watchdog 보다 시맨틱하게 정확하고 false-positive 가 적음.
         with self._cmd_lock:
-            if self.count_publishers('/cmd_vel') == 0:
+            if self.count_publishers('/cmd_vel_mux') == 0:
                 self._cmd_vx = 0.0
                 self._cmd_vy = 0.0
                 self._cmd_wz = 0.0
             base = [self._cmd_vx, self._cmd_vy, self._cmd_wz]
+        with self._arm_lock:
+            arm = list(self._arm_target)
         # No `frame` key → defaults to "body" on sim side (yaw-rotated).
         # That matches Nav2 controller_server / teleop conventions where
         # cmd_vel is already in the robot's body frame.
@@ -550,7 +564,7 @@ class IsaacBridge(Node):
             'schema': COMMAND_SCHEMA,
             'stamp_ns': time.time_ns(),
             'robot_id': self._robot_id,
-            'arm_joint_pos_target': self._zero_arm,
+            'arm_joint_pos_target': arm,
             'base_cmd_vel': base,
         }
         try:

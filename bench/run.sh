@@ -5,8 +5,8 @@
 #   ./bench/run.sh <preset> [--record] [--note "..."] [--duration <sec>] [--explore]
 #
 # 예:
-#   ./bench/run.sh d456_isaac --record --note "isaac v2 1차"
-#   ./bench/run.sh d456_isaac --duration 180 --explore
+#   ./bench/run.sh depth_sensor_isaac --record --note "isaac v2 1차"
+#   ./bench/run.sh depth_sensor_isaac --duration 180 --explore
 #
 # preset = bench/presets/<name>.sh 파일명에서 .sh 제외
 #
@@ -28,6 +28,15 @@ set -e
 # run_multisession_slam.sh 가 이미 export 했으면 그대로 상속, 아니면 default.
 export ROS_LOCALHOST_ONLY=${ROS_LOCALHOST_ONLY:-1}
 export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}
+export ROS_DISTRO=${ROS_DISTRO:-humble}
+export XLE_COMPUTE_ENV=${XLE_COMPUTE_ENV:-gz-nav-humble}
+if [ -z "${ROS_SETUP:-}" ] && [ -n "${CONDA_PREFIX:-}" ] && [ -f "${CONDA_PREFIX}/setup.bash" ]; then
+    export ROS_SETUP="${CONDA_PREFIX}/setup.bash"
+elif [ -z "${ROS_SETUP:-}" ] && [ -f "${HOME}/micromamba/envs/${XLE_COMPUTE_ENV}/setup.bash" ]; then
+    export ROS_SETUP="${HOME}/micromamba/envs/${XLE_COMPUTE_ENV}/setup.bash"
+else
+    export ROS_SETUP=${ROS_SETUP:-/opt/ros/${ROS_DISTRO}/setup.bash}
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BENCH_DIR="${REPO_ROOT}/bench"
@@ -89,8 +98,26 @@ echo "started: ${TS}" >> "${RUN_DIR}/notes.md"
 
 # ── 환경 ────────────────────────────────────────────────────────────
 cd "${REPO_ROOT}"
-source /opt/ros/humble/setup.bash
-source install/setup.bash
+if [ ! -f "${ROS_SETUP}" ]; then
+    echo "[err] ROS setup not found: ${ROS_SETUP}"
+    echo "      apt setup: scripts/setup_compute_pc_hardware.sh"
+    echo "      conda/robostack: export ROS_SETUP=/path/to/env/setup.bash"
+    exit 1
+fi
+if [ -z "${WORKSPACE_SETUP:-}" ]; then
+    if [ -f install/setup.bash ]; then
+        WORKSPACE_SETUP=install/setup.bash
+    else
+        WORKSPACE_SETUP=install/setup.sh
+    fi
+fi
+if [ ! -f "${WORKSPACE_SETUP}" ]; then
+    echo "[err] workspace setup not found: ${WORKSPACE_SETUP}"
+    echo "      build with: colcon build --symlink-install --paths src/gz_nav_sim"
+    exit 1
+fi
+source "${ROS_SETUP}"
+source "${WORKSPACE_SETUP}"
 
 # ROS2 launch의 모든 노드 stdout/stderr가 launch.log에 timestamp + 노드명 prefix로
 # 합쳐져 들어감. 별도 redirect 안 해도 됨.
@@ -167,6 +194,7 @@ cleanup() {
         'da3_depth_node' \
         'nvblox_node' \
         'nvblox_mesh_to_gltf' \
+        'rplidar_c1_scan_node' \
         'foxglove_bridge' \
         'async_slam_toolbox_node' \
         'component_container_isolated.*nav2' \
