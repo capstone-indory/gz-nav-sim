@@ -5,11 +5,12 @@
 # This compute PC only runs SLAM/Nav2/Foxglove and bridges those /xlerobot
 # topics into the local navigation interface. In the default hardware path,
 # /xlerobot/* comes in through local rosbridge_server, not DDS discovery.
-# Default hardware path uses RTAB-Map fusion: RGB-D visual odometry plus LiDAR
-# scan occupancy/refinement. It does not consume robot/base wheel odom. Use
-# RTABMAP_ODOM_SOURCE=icp for LiDAR-only fallback or rgbd for camera-only odom.
+# Default hardware path uses RTAB-Map with LiDAR-only ICP odometry and scan
+# occupancy/refinement. It does not consume robot/base wheel odom. Use
+# RTABMAP_ODOM_SOURCE=fusion for RGB-D visual odom plus LiDAR refinement, or
+# RTABMAP_ODOM_SOURCE=rgbd for camera-only odom.
 PRESET_NAME="depth_sensor_hardware"
-PRESET_DESC="Remote XLeRobot rosbridge I/O + RGB-D/LiDAR fusion RTAB-Map/Nav2/Foxglove"
+PRESET_DESC="Remote XLeRobot rosbridge I/O + LiDAR-only RTAB-Map/Nav2/Foxglove"
 
 USE_RTABMAP_DEFAULT="${USE_RTABMAP:-true}"
 USE_SLAM_TOOLBOX_DEFAULT="${USE_SLAM_TOOLBOX:-false}"
@@ -44,7 +45,7 @@ LAUNCH_ARGS=(
   use_depth_scan_fallback:=${USE_DEPTH_SCAN_FALLBACK:-true}
   depth_scan_publish_rate_hz:=${DEPTH_SCAN_PUBLISH_RATE_HZ:-15.0}
   enable_base_odom_bridge:=false
-  rtabmap_odom_source:=${RTABMAP_ODOM_SOURCE:-fusion}
+  rtabmap_odom_source:=${RTABMAP_ODOM_SOURCE:-icp}
   rtabmap_db:=${RTABMAP_DB:-}
   use_imu:=${USE_IMU:-false}
   use_binary_rgbd_bridge:=${USE_BINARY_RGBD_BRIDGE:-true}

@@ -247,7 +247,20 @@ case "$SIM_MODE" in
                 echo "[boot] robot computer should run: cd ${ROBOT_REMOTE_REPO} && ${ROBOT_IO_REMOTE_COMMAND}"
             fi
             echo "[boot] scan path: /xlerobot/scan -> /scan_raw -> filtered /scan for Nav2"
-            echo "[boot] SLAM: RTAB fusion = RGB-D visual odom + /xlerobot/scan occupancy refinement"
+            case "${RTABMAP_ODOM_SOURCE:-icp}" in
+                icp)
+                    echo "[boot] SLAM: RTAB LiDAR-only = /xlerobot/scan ICP odom + scan occupancy; RGB-D not used for SLAM"
+                    ;;
+                rgbd)
+                    echo "[boot] SLAM: RTAB RGB-D odom from depth sensor; base/wheel odom disabled"
+                    ;;
+                fusion)
+                    echo "[boot] SLAM: RTAB fusion = RGB-D visual odom + /xlerobot/scan occupancy refinement"
+                    ;;
+                *)
+                    echo "[boot] SLAM: RTAB odom source=${RTABMAP_ODOM_SOURCE}; base/wheel odom disabled"
+                    ;;
+            esac
             echo "[boot] video: Pi RTSP/H.264 -> MediaMTX :${MEDIAMTX_RTSP_PORT}/${ROBOT_VIDEO_PATH} -> WebRTC :${MEDIAMTX_WEBRTC_PORT}/${ROBOT_VIDEO_PATH}"
             echo "[boot] RGB-D: Pi TCP binary depth/RGB -> :${BINARY_RGBD_PORT} -> ROS 2 camera topics; rosbridge image JSON=${ROBOT_DEPTH_SENSOR_ROSBRIDGE_IMAGE_ENABLE}"
             echo "[boot] goals: Foxglove /goal_pose or /nav/destination, /nav/goal_pose2d"
@@ -311,7 +324,7 @@ if [[ $SIM_MODE == isaac ]]; then
     : "${USE_SEMANTIC_OCR:=true}"
     : "${USE_RTABMAP:=true}"
     : "${USE_SLAM_TOOLBOX:=false}"
-    : "${RTABMAP_ODOM_SOURCE:=fusion}"
+    : "${RTABMAP_ODOM_SOURCE:=icp}"
     : "${USE_IMU:=true}"
     : "${DIRECT_DEPTH:=true}"
 elif [[ $SIM_MODE == hardware ]]; then
