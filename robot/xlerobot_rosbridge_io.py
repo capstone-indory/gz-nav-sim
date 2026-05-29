@@ -1388,6 +1388,10 @@ class UsbCameraRtspProcess:
         self.transport = os.environ.get(f"{prefix}_CAMERA_RTSP_TRANSPORT", "tcp")
         self.preset = os.environ.get(f"{prefix}_CAMERA_RTSP_X264_PRESET", "ultrafast")
         self.profile = os.environ.get(f"{prefix}_CAMERA_RTSP_H264_PROFILE", "baseline")
+        self.rotate_deg = env_int(f"{prefix}_CAMERA_ROTATE_DEG", env_int("USB_CAMERA_ROTATE_DEG", 0)) % 360
+        self.video_filter = os.environ.get(f"{prefix}_CAMERA_FFMPEG_FILTER", "").strip()
+        if not self.video_filter and self.rotate_deg == 180:
+            self.video_filter = "hflip,vflip"
         self._thread = threading.Thread(target=self._run, name=f"{name}-camera-rtsp", daemon=True)
         self._process: Optional[subprocess.Popen] = None
         self._last_error_log_at = 0.0
@@ -1410,7 +1414,7 @@ class UsbCameraRtspProcess:
         print(
             f"[{self.name}_camera-rtsp] publishing {self.device} to {self.url} "
             f"@{self.width}x{self.height}/{self.fps:g}fps {self.bitrate_kbps}kbps "
-            f"input={self.input_format or 'default'}",
+            f"input={self.input_format or 'default'} rotate={self.rotate_deg}",
             flush=True,
         )
 
@@ -1458,6 +1462,10 @@ class UsbCameraRtspProcess:
             "-i",
             self.device,
             "-an",
+        ])
+        if self.video_filter:
+            cmd.extend(["-vf", self.video_filter])
+        cmd.extend([
             "-c:v",
             "libx264",
             "-preset",
