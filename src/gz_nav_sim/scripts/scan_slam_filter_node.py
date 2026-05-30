@@ -25,6 +25,12 @@ class ScanSlamFilterNode(Node):
         self.declare_parameter('min_cluster_points', 3)
         self.declare_parameter('cluster_jump_m', 0.30)
         self.declare_parameter('cluster_max_range_m', 2.5)
+        self.declare_parameter('temporal_static_filter', False)
+        self.declare_parameter('stable_observations', 4)
+        self.declare_parameter('stable_tolerance_m', 0.22)
+        self.declare_parameter('stable_max_misses', 8)
+        self.declare_parameter('stable_alpha', 0.15)
+        self.declare_parameter('stable_seconds', 2.0)
 
         g = lambda name: self.get_parameter(name).value
         self._min_range = max(0.0, float(g('min_range_m')))
@@ -33,6 +39,17 @@ class ScanSlamFilterNode(Node):
         self._min_cluster_points = max(1, int(g('min_cluster_points')))
         self._cluster_jump = max(0.01, float(g('cluster_jump_m')))
         self._cluster_max_range = max(0.0, float(g('cluster_max_range_m')))
+        self._temporal_static = bool(g('temporal_static_filter'))
+        self._stable_observations = max(1, int(g('stable_observations')))
+        self._stable_tolerance = max(0.01, float(g('stable_tolerance_m')))
+        self._stable_max_misses = max(1, int(g('stable_max_misses')))
+        self._stable_alpha = min(1.0, max(0.0, float(g('stable_alpha'))))
+        self._stable_seconds = max(0.0, float(g('stable_seconds')))
+        self._stable: list[float] = []
+        self._candidate: list[float] = []
+        self._candidate_count: list[int] = []
+        self._candidate_first_seen: list[float] = []
+        self._miss_count: list[int] = []
 
         qos = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT)
         self._pub = self.create_publisher(LaserScan, str(g('output_topic')), qos)
@@ -65,9 +82,77 @@ class ScanSlamFilterNode(Node):
 
         if self._remove_clusters:
             self._remove_small_near_clusters(ranges)
+        if self._temporal_static:
+            ranges = self._temporal_static_ranges(ranges, out.range_min, out.range_max)
 
         out.ranges = ranges
         self._pub.publish(out)
+
+    def _temporal_static_ranges(
+        self, ranges: list[float], range_min: float, range_max: float
+    ) -> list[float]:
+        n = len(ranges)
+        if len(self._stable) != n:
+            self._stable = [math.inf] * n
+            self._candidate = [math.inf] * n
+            self._candidate_count = [0] * n
+            self._candidate_first_seen = [0.0] * n
+            self._miss_count = [0] * n
+
+        out = [math.inf] * n
+        now = self.get_clock().now().nanoseconds / 1e9
+        for index, value in enumerate(ranges):
+            r = float(value)
+            valid = math.isfinite(r) and range_min <= r <= range_max
+            old = float(self._stable[index])
+            old_valid = math.isfinite(old)
+
+            if not valid:
+                if old_valid:
+                    self._miss_count[index] += 1
+                    if self._miss_count[index] <= self._stable_max_misses:
+                        out[index] = old
+                        continue
+                    self._stable[index] = math.inf
+                self._candidate[index] = math.inf
+                self._candidate_count[index] = 0
+                self._candidate_first_seen[index] = 0.0
+                self._miss_count[index] = 0
+                continue
+
+            self._miss_count[index] = 0
+            if old_valid and abs(r - old) <= self._stable_tolerance:
+                self._stable[index] = (
+                    old * (1.0 - self._stable_alpha) + r * self._stable_alpha)
+                self._candidate[index] = math.inf
+                self._candidate_count[index] = 0
+                self._candidate_first_seen[index] = 0.0
+                out[index] = self._stable[index]
+                continue
+
+            cand = float(self._candidate[index])
+            if math.isfinite(cand) and abs(r - cand) <= self._stable_tolerance:
+                self._candidate[index] = (cand + r) * 0.5
+                self._candidate_count[index] += 1
+            else:
+                self._candidate[index] = r
+                self._candidate_count[index] = 1
+                self._candidate_first_seen[index] = now
+
+            stable_for_s = now - (self._candidate_first_seen[index] or now)
+            if (
+                self._candidate_count[index] >= self._stable_observations
+                and stable_for_s >= self._stable_seconds
+            ):
+                self._stable[index] = float(self._candidate[index])
+                self._candidate[index] = math.inf
+                self._candidate_count[index] = 0
+                self._candidate_first_seen[index] = 0.0
+                out[index] = self._stable[index]
+            elif old_valid:
+                out[index] = old
+
+        return out
 
     def _remove_small_near_clusters(self, ranges: list[float]) -> None:
         start: Optional[int] = None
