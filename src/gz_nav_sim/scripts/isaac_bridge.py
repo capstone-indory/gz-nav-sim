@@ -478,9 +478,12 @@ class IsaacBridge(Node):
         # Allow per-message overrides; otherwise fall back to the params.
         amin = float(msg.get('angle_min', self._scan_angle_min))
         amax = float(msg.get('angle_max', self._scan_angle_max))
+        angle_increment = float(msg.get('angle_increment') or 0.0)
+        if angle_increment <= 0.0:
+            angle_increment = (amax - amin) / max(1, n - 1)
         scan.angle_min = amin
-        scan.angle_max = amax
-        scan.angle_increment = (amax - amin) / n
+        scan.angle_increment = angle_increment
+        scan.angle_max = amin + angle_increment * float(n - 1)
         scan.time_increment = 0.0
         scan.scan_time = float(msg.get('scan_time', 0.1))
         # Force our self-filter range_min instead of sim's (sim sends 0.05).
@@ -562,8 +565,10 @@ class IsaacBridge(Node):
         # cmd_vel is already in the robot's body frame.
         frame = {
             'schema': COMMAND_SCHEMA,
+            'source_id': 'gz_nav_sim_nav2',
             'stamp_ns': time.time_ns(),
             'robot_id': self._robot_id,
+            'frame': 'body',
             'arm_joint_pos_target': arm,
             'base_cmd_vel': base,
         }

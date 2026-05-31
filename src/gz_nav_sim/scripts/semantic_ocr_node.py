@@ -38,7 +38,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 
-ROOM_ID_RE = re.compile(r'(?<![0-9A-Z])(?:[A-Z][ -]?)?\d{3,4}(?![0-9A-Z])', re.IGNORECASE)
+ROOM_ID_RE = re.compile(r'(?<![0-9A-Z])(?:[A-Z][ -]?)?\d{3,4}(?:-\d+)?(?![0-9A-Z])', re.IGNORECASE)
 
 OCR_REASON = (
     'PaddleOCR is the primary OCR because it returns text, confidence, and '
@@ -141,11 +141,12 @@ def _apply_floor_prior(room_id: str, floor_hint: str | None, floor_prior_mode: s
     was occluded — preserves the original VID_*_13F recovery behavior.
     """
     hint = _normalize_floor_hint(floor_hint)
-    compact = re.sub(r'[\s-]+', '', room_id.upper())
-    match = re.match(r'^([A-Z])?(\d{3,4})$', compact)
+    compact = re.sub(r'\s+', '', room_id.upper())
+    match = re.match(r'^([A-Z])?(\d{3,4})(?:-(\d+))?$', compact)
     if not match:
         return None
-    letter, digits = match.groups()
+    letter, digits, suffix = match.groups()
+    suffix_text = f'-{suffix}' if suffix else ''
     letter = letter or ''
     complete = floor_prior_mode == 'complete'
 
@@ -161,14 +162,14 @@ def _apply_floor_prior(room_id: str, floor_hint: str | None, floor_prior_mode: s
 
     if basement:
         if letter == 'B' and len(digits) == expected_len and digits.startswith(floor_str):
-            return f'B{digits}'
+            return f'B{digits}{suffix_text}'
         if complete and not letter and len(digits) == expected_len and digits.startswith(floor_str):
-            return f'B{digits}'
+            return f'B{digits}{suffix_text}'
         return None
 
     # Above ground
     if not letter and len(digits) == expected_len and digits.startswith(floor_str):
-        return digits
+        return f'{digits}{suffix_text}'
     # Trailing-digit recovery (multi-digit floors only): OCR caught the last
     # floor digit + room number but missed the leading floor digits.
     if (
@@ -178,7 +179,7 @@ def _apply_floor_prior(room_id: str, floor_hint: str | None, floor_prior_mode: s
         and len(digits) == expected_len - len(floor_str) + 1
         and digits.startswith(floor_str[-1])
     ):
-        return floor_str[:-1] + digits
+        return f'{floor_str[:-1]}{digits}{suffix_text}'
     return None
 
 
@@ -193,8 +194,9 @@ def _normalize_room_id(
     match = ROOM_ID_RE.search(cleaned)
     if not match:
         return None
+    normalized = re.sub(r'\s+', '', match.group(0).upper())
     return _apply_floor_prior(
-        re.sub(r'[\s-]+', '', match.group(0).upper()),
+        normalized,
         floor_hint,
         floor_prior_mode,
     )
